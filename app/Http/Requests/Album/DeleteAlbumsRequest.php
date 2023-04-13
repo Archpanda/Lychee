@@ -2,12 +2,13 @@
 
 namespace App\Http\Requests\Album;
 
+use App\Contracts\Http\Requests\HasAlbumIDs;
+use App\Contracts\Http\Requests\RequestAttribute;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasAlbumIDs;
 use App\Http\Requests\Traits\HasAlbumIDsTrait;
+use App\Http\RuleSets\Album\DeleteAlbumsRuleSet;
 use App\Models\Album;
 use App\Policies\AlbumPolicy;
-use App\Rules\AlbumIDRule;
 use Illuminate\Support\Facades\Gate;
 
 class DeleteAlbumsRequest extends BaseApiRequest implements HasAlbumIDs
@@ -27,10 +28,7 @@ class DeleteAlbumsRequest extends BaseApiRequest implements HasAlbumIDs
 	 */
 	public function rules(): array
 	{
-		return [
-			HasAlbumIDs::ALBUM_IDS_ATTRIBUTE => 'required|array|min:1',
-			HasAlbumIDs::ALBUM_IDS_ATTRIBUTE . '.*' => ['required', new AlbumIDRule(false)],
-		];
+		return DeleteAlbumsRuleSet::rules();
 	}
 
 	/**
@@ -41,6 +39,6 @@ class DeleteAlbumsRequest extends BaseApiRequest implements HasAlbumIDs
 		// As we are going to delete the albums anyway, we don't load the
 		// models for efficiency reasons.
 		// Instead, we use mass deletion via low-level SQL queries later.
-		$this->albumIDs = $values[HasAlbumIDs::ALBUM_IDS_ATTRIBUTE];
+		$this->albumIDs = $values[RequestAttribute::ALBUM_IDS_ATTRIBUTE];
 	}
 }

@@ -1,13 +1,12 @@
 <?php
 
-use App\Models\Configs;
-use DarkGhostHunter\Larapass\Eloquent\WebAuthnCredential;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateWebAuthnTables extends Migration
-{
+return new class() extends Migration {
+	public const DELETED_AT = 'disabled_at';
+
 	/**
 	 * Run the migrations.
 	 *
@@ -38,8 +37,8 @@ class CreateWebAuthnTables extends Migration
 			$table->uuid('user_handle')->nullable();
 
 			$table->timestamps();
-			$table->softDeletes(WebAuthnCredential::DELETED_AT);
-			Configs::where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING]);
+			$table->softDeletes(self::DELETED_AT);
+			DB::table('configs')->where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING]);
 
 			$table->primary(['id', 'user_id']);
 		});
@@ -55,8 +54,8 @@ class CreateWebAuthnTables extends Migration
 		defined('STRING_REQ') or define('STRING_REQ', 'string_required');
 
 		if (Schema::hasTable('configs')) {
-			Configs::where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING_REQ]);
+			DB::table('configs')->where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING_REQ]);
 		}
 		Schema::dropIfExists('web_authn_credentials');
 	}
-}
+};

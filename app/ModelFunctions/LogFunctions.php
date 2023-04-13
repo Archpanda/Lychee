@@ -2,6 +2,7 @@
 
 namespace App\ModelFunctions;
 
+use App\Enum\SeverityType;
 use App\Models\Logs;
 use Psr\Log\AbstractLogger;
 
@@ -37,7 +38,7 @@ class LogFunctions extends AbstractLogger
 	/**
 	 * Implements log so that AbstractLogger works.
 	 */
-	public function log($loglevel, $message, $context = [])
+	public function log($level, \Stringable|string $message, array $context = []): void
 	{
 		$dbt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
 		// debug_backtrace return the backtrace of all the function calls
@@ -51,8 +52,12 @@ class LogFunctions extends AbstractLogger
 			$text = 'argument is not stringable!';
 		}
 
+		// Just make sure that the level is valid.
+		// if not report as critical
+		$log_level = SeverityType::tryFrom($level) ?? SeverityType::CRITICAL;
+
 		$log = Logs::create([
-			'type' => $loglevel,
+			'type' => $log_level,
 			'function' => $fun,
 			'line' => $line,
 			'text' => $text,

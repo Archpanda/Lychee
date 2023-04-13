@@ -13,11 +13,11 @@ class Kernel extends HttpKernel
 	 *
 	 * These middlewares are run during every request to your application.
 	 *
-	 * @var string[]
+	 * @var array<int,string>
 	 */
 	protected $middleware = [
 		\App\Http\Middleware\FixStatusCode::class,
-		\Fideloper\Proxy\TrustProxies::class, // required to get proper (i.e. original) client IP instead of proxy IP, if run behind a reverse proxy
+		\Illuminate\Http\Middleware\TrustProxies::class,
 		\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance::class,
 		\Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
 		\App\Http\Middleware\TrimStrings::class,
@@ -28,11 +28,12 @@ class Kernel extends HttpKernel
 	/**
 	 * The application's route middleware groups.
 	 *
-	 * @var array<string[]>
+	 * @var array<string,array<int,string>>
 	 */
 	protected $middlewareGroups = [
 		'web' => [
 			'installation:complete',
+			'admin_user:set',
 			'accept_content_type:html',
 			\Illuminate\Cookie\Middleware\EncryptCookies::class,
 			\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
@@ -52,7 +53,6 @@ class Kernel extends HttpKernel
 			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
 			\App\Http\Middleware\VerifyCsrfToken::class,
 			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-			'admin',
 		],
 
 		'web-install' => [
@@ -62,6 +62,7 @@ class Kernel extends HttpKernel
 
 		'api' => [
 			'installation:complete',
+			'admin_user:set',
 			'accept_content_type:json',
 			'content_type:json',
 			\Illuminate\Cookie\Middleware\EncryptCookies::class,
@@ -71,20 +72,6 @@ class Kernel extends HttpKernel
 			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
 			\App\Http\Middleware\VerifyCsrfToken::class,
 			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-		],
-
-		'api-admin' => [
-			'installation:complete',
-			'accept_content_type:json',
-			'content_type:json',
-			\Illuminate\Cookie\Middleware\EncryptCookies::class,
-			\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-			\Illuminate\Session\Middleware\StartSession::class,
-			\Illuminate\Session\Middleware\AuthenticateSession::class,
-			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
-			\App\Http\Middleware\VerifyCsrfToken::class,
-			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-			'admin',
 		],
 	];
 
@@ -95,9 +82,9 @@ class Kernel extends HttpKernel
 	 *
 	 * @var array<string, string>
 	 */
-	protected $routeMiddleware = [
-		'admin' => \App\Http\Middleware\AdminCheck::class,
+	protected $middlewareAliases = [
 		'installation' => \App\Http\Middleware\InstallationStatus::class,
+		'admin_user' => \App\Http\Middleware\AdminUserStatus::class,
 		'migration' => \App\Http\Middleware\MigrationStatus::class,
 		'local_storage' => \App\Http\Middleware\LocalStorageOnly::class,
 		'content_type' => \App\Http\Middleware\ContentType::class,

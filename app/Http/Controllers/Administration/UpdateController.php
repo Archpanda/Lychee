@@ -2,19 +2,15 @@
 
 namespace App\Http\Controllers\Administration;
 
-use App\Actions\Update\Apply as ApplyUpdate;
-use App\Actions\Update\Check as CheckUpdate;
-use App\Contracts\LycheeException;
+use App\Actions\Diagnostics\Pipes\Checks\UpdatableCheck;
+use App\Actions\InstallUpdate\ApplyUpdate;
+use App\Contracts\Exceptions\LycheeException;
 use App\Exceptions\VersionControlException;
-use App\Legacy\AdminAuthentication;
-use App\Legacy\Legacy;
-use App\Policies\UserPolicy;
-use Illuminate\Http\Request;
+use App\Http\Requests\Settings\MigrateRequest;
+use App\Http\Requests\Settings\UpdateRequest;
+use App\Metadata\Versions\GitHubVersion;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Session;
 use Illuminate\View\View;
 
 /**
@@ -49,12 +45,10 @@ use Illuminate\View\View;
  */
 class UpdateController extends Controller
 {
-	protected CheckUpdate $checkUpdate;
 	protected ApplyUpdate $applyUpdate;
 
-	public function __construct(CheckUpdate $checkUpdate, ApplyUpdate $applyUpdate)
+	public function __construct(ApplyUpdate $applyUpdate)
 	{
-		$this->checkUpdate = $checkUpdate;
 		$this->applyUpdate = $applyUpdate;
 	}
 
@@ -62,13 +56,18 @@ class UpdateController extends Controller
 	 * Return if up to date or the number of commits behind
 	 * This invalidates the cache for the url.
 	 *
+	 * @param UpdateRequest $request
+	 *
 	 * @return array{updateStatus: string}
 	 *
 	 * @throws VersionControlException
 	 */
-	public function check(): array
+	public function check(UpdateRequest $request): array
 	{
-		return ['updateStatus' => $this->checkUpdate->getText()];
+		$gitHubFunctions = resolve(GitHubVersion::class);
+		$gitHubFunctions->hydrate(true, false);
+
+		return ['updateStatus' => $gitHubFunctions->getBehindTest()];
 	}
 
 	/**
@@ -78,13 +77,15 @@ class UpdateController extends Controller
 	 * Except for the return type this method is identical to
 	 * {@link UpdateController::view()}.
 	 *
+	 * @param UpdateRequest $request
+	 *
 	 * @return array{updateMsgs: array<string>}
 	 *
 	 * @throws LycheeException
 	 */
-	public function apply(): array
+	public function apply(UpdateRequest $request): array
 	{
-		$this->checkUpdate->assertUpdatability();
+		UpdatableCheck::assertUpdatability();
 
 		return ['updateMsgs' => $this->applyUpdate->run()];
 	}
@@ -96,13 +97,16 @@ class UpdateController extends Controller
 	 * Except for the return type this method is identical to
 	 * {@link UpdateController::apply()}.
 	 *
+	 * @param UpdateRequest $request
+	 *
 	 * @return View
 	 *
 	 * @throws LycheeException
 	 */
-	public function view(): View
+	public function view(UpdateRequest $request): View
 	{
-		$this->checkUpdate->assertUpdatability();
+		UpdatableCheck::assertUpdatability();
+
 		$output = $this->applyUpdate->run();
 
 		return view('update.results', ['code' => '200', 'message' => 'Upgrade results', 'output' => $output]);
@@ -118,41 +122,20 @@ class UpdateController extends Controller
 	 * trigger a migration, but also generates a new API key.
 	 * Also note, that this method internally uses
 	 * {@link ApplyUpdate::migrate()} while `MigrationController::view`
-	 * uses {@link \App\Actions\Install\ApplyMigration::migrate()}.
+	 * uses {@link \App\Actions\InstallUpdate\ApplyMigration::migrate()}.
 	 * However, both methods are very similar, too.
 	 * The whole code around installation/upgrade/migration should
 	 * thoroughly be revised an refactored.
+	 *
+	 * @param MigrateRequest $request
+	 *
+	 * @return View|Response
 	 */
-	public function migrate(Request $request): View|Response
+	public function migrate(MigrateRequest $request): View|Response
 	{
-		// This conditional code makes use of lazy boolean evaluation: a || b does not execute b if a is true.
-		// 1. Check whether the user is already logged in properly
-		// 2. Check if the admin user is registered and login as admin, if not
-		// 3. Attempt to login as an admin user using the legacy method: hash(username) + hash(password).
-		// 4. Try to login the normal way.
-		//
-		// TODO: Step 2 will become unnecessary once admin registration has become part of the installation routine; after that the case that no admin is registered cannot occur anymore
-		// TODO: Step 3 will become unnecessary once the admin user of any existing installation has at least logged in once and the admin user has therewith migrated to use a non-hashed user name
-		$isLoggedIn = Auth::check();
-		$isLoggedIn = $isLoggedIn || AdminAuthentication::loginAsAdminIfNotRegistered();
-		$isLoggedIn = $isLoggedIn || AdminAuthentication::loginAsAdmin($request->input('username', ''), $request->input('password', ''), $request->ip());
-		$isLoggedIn = $isLoggedIn || Auth::attempt(['username' => $request->input('username', ''), 'password' => $request->input('password', '')]);
+		$output = [];
+		$output = $this->applyUpdate->run();
 
-		// Check if logged in AND is admin
-		if (Gate::check(UserPolicy::IS_ADMIN)) {
-			$output = [];
-			$this->applyUpdate->migrate($output);
-			$this->applyUpdate->filter($output);
-
-			if (AdminAuthentication::isAdminNotRegistered()) {
-				Auth::logout();
-				Session::flush();
-			}
-
-			return view('update.results', ['code' => '200', 'message' => 'Migration results', 'output' => $output]);
-		}
-
-		// Rather than returning a view directly (which implies code 200, we use response in order to ensure code 403)
-		return response()->view('update.error', ['code' => '403', 'message' => 'Incorrect username or password'], 403);
+		return view('update.results', ['code' => '200', 'message' => 'Migration results', 'output' => $output]);
 	}
 }

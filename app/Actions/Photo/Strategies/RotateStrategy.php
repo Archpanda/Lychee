@@ -2,10 +2,11 @@
 
 namespace App\Actions\Photo\Strategies;
 
-use App\Contracts\LycheeException;
-use App\Contracts\SizeVariantFactory;
-use App\Contracts\SizeVariantNamingStrategy;
+use App\Contracts\Exceptions\LycheeException;
+use App\Contracts\Models\AbstractSizeVariantNamingStrategy;
+use App\Contracts\Models\SizeVariantFactory;
 use App\DTO\ImageDimension;
+use App\Enum\SizeVariantType;
 use App\Exceptions\Handler;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\Internal\IllegalOrderOfOperationException;
@@ -13,8 +14,8 @@ use App\Exceptions\Internal\InvalidRotationDirectionException;
 use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\LycheeDomainException;
 use App\Exceptions\MediaFileUnsupportedException;
-use App\Image\FlysystemFile;
-use App\Image\ImageHandler;
+use App\Image\Files\FlysystemFile;
+use App\Image\Handlers\ImageHandler;
 use App\Models\Photo;
 use App\Models\SizeVariant;
 use Illuminate\Contracts\Container\BindingResolutionException;
@@ -26,7 +27,7 @@ class RotateStrategy
 	/** @var int either `1` for counterclockwise or `-1` for clockwise rotation */
 	protected int $direction;
 	protected FlysystemFile $sourceFile;
-	protected SizeVariantNamingStrategy $namingStrategy;
+	protected AbstractSizeVariantNamingStrategy $namingStrategy;
 
 	/**
 	 * @param Photo $photo
@@ -58,7 +59,7 @@ class RotateStrategy
 			$this->photo = $photo;
 			$this->direction = $direction;
 			$this->sourceFile = $this->photo->size_variants->getOriginal()->getFile();
-			$this->namingStrategy = resolve(SizeVariantNamingStrategy::class);
+			$this->namingStrategy = resolve(AbstractSizeVariantNamingStrategy::class);
 			$this->namingStrategy->setPhoto($this->photo);
 		} catch (BindingResolutionException $e) {
 			throw new FrameworkException('Laravel\'s container component', $e);
@@ -101,7 +102,7 @@ class RotateStrategy
 
 		// Create new target file for rotated original size variant,
 		// and stream it into the final place
-		$targetFile = $this->namingStrategy->createFile(SizeVariant::ORIGINAL);
+		$targetFile = $this->namingStrategy->createFile(SizeVariantType::ORIGINAL);
 		$streamStat = $image->save($targetFile, true);
 
 		// The checksum has been changed due to rotation.
@@ -111,7 +112,7 @@ class RotateStrategy
 
 		// Re-create original size variant of photo
 		$newOriginalSizeVariant = $this->photo->size_variants->create(
-			SizeVariant::ORIGINAL,
+			SizeVariantType::ORIGINAL,
 			$targetFile->getRelativePath(),
 			$image->getDimensions(),
 			$streamStat->bytes

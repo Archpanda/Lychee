@@ -13,7 +13,7 @@ return [
 	*/
 
 	'defaults' => [
-		'guard' => 'web',
+		'guard' => 'lychee',
 		'passwords' => 'users',
 	],
 
@@ -32,18 +32,15 @@ return [
 	|
 	| Supported: "session", "token"
 	|
+	| The custom identifier "session-or-token" is registered in
+	| App\Providers\AuthServiceProvider and resolves to
+	| App\Services\Auth\SessionOrTokenGuard.
 	*/
 
 	'guards' => [
-		'web' => [
-			'driver' => 'session',
+		'lychee' => [
+			'driver' => env('ENABLE_TOKEN_AUTH', true) ? 'session-or-token' : 'session',
 			'provider' => 'users',
-		],
-
-		'api' => [
-			'driver' => 'token',
-			'provider' => 'users',
-			'hash' => false,
 		],
 	],
 
@@ -66,9 +63,9 @@ return [
 
 	'providers' => [
 		'users' => [
-			'driver' => 'eloquent',
-			// 'driver' => 'eloquent-webauthn',
+			'driver' => 'eloquent-webauthn',
 			'model' => App\Models\User::class,
+			'password_fallback' => true,
 		],
 
 		// 'users' => [

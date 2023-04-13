@@ -11,7 +11,6 @@ class StarredAlbum extends BaseSmartAlbum
 {
 	private static ?self $instance = null;
 	public const ID = 'starred';
-	public const TITLE = 'Starred';
 
 	/**
 	 * @throws ConfigurationKeyMissingException
@@ -21,7 +20,7 @@ class StarredAlbum extends BaseSmartAlbum
 	{
 		parent::__construct(
 			self::ID,
-			self::TITLE,
+			__('lychee.STARRED'),
 			Configs::getValueAsBool('public_starred'),
 			fn (Builder $q) => $q->where('photos.is_starred', '=', true)
 		);

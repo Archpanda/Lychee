@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html lang="{{ str_replace('_', '-', Lang::get_code()) }}">
+<html lang="{{ app()->currentLocale() }}">
 <head>
 	<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 	<title>{{ App\Models\Configs::getValueAsString('site_title') }}</title>
@@ -17,7 +17,7 @@
 	<script src="{{ URL::asset('Lychee-front/node_modules/lazysizes/lazysizes.min.js') }}"></script>
 
 	<link type="text/css" rel="stylesheet" href="{{ URL::asset(Helpers::cacheBusting('css/app.css')) }}">
-	{{-- <link type="text/css" rel="stylesheet" href="{{ URL::asset(Helpers::cacheBusting('dist/user.css')) }}"> --}}
+	{{-- <link type="text/css" rel="stylesheet" href="{{ URL::asset(Helpers::cacheBusting('$userCssUrl')) }}"> --}}
 	@if (Helpers::getDeviceType()=="television")
 	<link type="text/css" rel="stylesheet" href="{{ URL::asset(Helpers::cacheBusting('dist/TV.css')) }}">
 	@endif
@@ -25,8 +25,6 @@
 	{{-- @if($rss_enable)
 	  @include('feed::links')
 	@endif --}}
-
-	<script src="{{ URL::asset('dist/Larapass.js') }}"></script>
 
 	@yield('head-meta')
 @livewireStyles

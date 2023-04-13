@@ -2,24 +2,27 @@
 
 namespace App\Providers;
 
-use App\Actions\Update\Apply as ApplyUpdate;
-use App\Actions\Update\Check as CheckUpdate;
+use App\Actions\InstallUpdate\CheckUpdate;
 use App\Assets\Helpers;
 use App\Assets\SizeVariantGroupedWithRandomSuffixNamingStrategy;
-use App\Contracts\SizeVariantFactory;
-use App\Contracts\SizeVariantNamingStrategy;
+use App\Contracts\Models\AbstractSizeVariantNamingStrategy;
+use App\Contracts\Models\SizeVariantFactory;
 use App\Factories\AlbumFactory;
-use App\Factories\LangFactory;
 use App\Image\SizeVariantDefaultFactory;
 use App\Image\StreamStatFilter;
-use App\Locale\Lang;
-use App\Metadata\GitHubFunctions;
-use App\Metadata\GitRequest;
-use App\Metadata\LycheeVersion;
-use App\ModelFunctions\ConfigFunctions;
+use App\Metadata\Json\CommitsRequest;
+use App\Metadata\Json\UpdateRequest;
+use App\Metadata\Versions\FileVersion;
+use App\Metadata\Versions\GitHubVersion;
+use App\Metadata\Versions\InstalledVersion;
+use App\Metadata\Versions\Remote\GitCommits;
+use App\Metadata\Versions\Remote\GitTags;
 use App\ModelFunctions\SymLinkFunctions;
+use App\Models\Configs;
 use App\Policies\AlbumQueryPolicy;
 use App\Policies\PhotoQueryPolicy;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
@@ -31,18 +34,24 @@ class AppServiceProvider extends ServiceProvider
 	public array $singletons
 	= [
 		SymLinkFunctions::class => SymLinkFunctions::class,
-		ConfigFunctions::class => ConfigFunctions::class,
-		LangFactory::class => LangFactory::class,
-		Lang::class => Lang::class,
 		Helpers::class => Helpers::class,
-		GitRequest::class => GitRequest::class,
-		GitHubFunctions::class => GitHubFunctions::class,
-		LycheeVersion::class => LycheeVersion::class,
 		CheckUpdate::class => CheckUpdate::class,
-		ApplyUpdate::class => ApplyUpdate::class,
 		AlbumFactory::class => AlbumFactory::class,
 		AlbumQueryPolicy::class => AlbumQueryPolicy::class,
 		PhotoQueryPolicy::class => PhotoQueryPolicy::class,
+
+		// Versioning
+		InstalledVersion::class => InstalledVersion::class,
+		GitHubVersion::class => GitHubVersion::class,
+		FileVersion::class => FileVersion::class,
+
+		// Json requests.
+		CommitsRequest::class => CommitsRequest::class,
+		UpdateRequest::class => UpdateRequest::class,
+
+		// JsonParsers
+		GitCommits::class => GitCommits::class,
+		GitTags::class => GitTags::class,
 	];
 
 	/**
@@ -52,12 +61,39 @@ class AppServiceProvider extends ServiceProvider
 	 */
 	public function boot()
 	{
-		if (config('app.db_log_sql', false) === true) {
+		/**
+		 * By default resources are wrapping results in a 'data' attribute.
+		 * We disable that.
+		 */
+		JsonResource::withoutWrapping();
+
+		if (config('database.db_log_sql', false) === true) {
 			DB::listen(function ($query) {
 				$msg = $query->sql . ' [' . implode(', ', $query->bindings) . ']';
 				Log::info($msg);
 			});
 		}
+
+		try {
+			$lang = Configs::getValueAsString('lang');
+			app()->setLocale($lang);
+		} catch (\Throwable $e) {
+			/** log and ignore.
+			 * This is necessary so that we can continue:
+			 * - if Configs table do not exists (no install),
+			 * - if the value does not exists in configs (no install),.
+			 */
+			logger($e);
+		}
+
+		/**
+		 * We enforce strict mode
+		 * this has the following effect:
+		 * - lazy loading is disabled
+		 * - non-fillable attributes on creation of model are not discarded but throw an error
+		 * - prevents accessing missing attributes.
+		 */
+		Model::shouldBeStrict();
 
 		try {
 			stream_filter_register(
@@ -78,16 +114,12 @@ class AppServiceProvider extends ServiceProvider
 	 */
 	public function register()
 	{
-		$this->app->bind('lang', function () {
-			return resolve(Lang::class);
-		});
-
 		$this->app->bind('Helpers', function () {
 			return resolve(Helpers::class);
 		});
 
 		$this->app->bind(
-			SizeVariantNamingStrategy::class,
+			AbstractSizeVariantNamingStrategy::class,
 			SizeVariantGroupedWithRandomSuffixNamingStrategy::class
 		);
 

@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\View;
 
+use App\Contracts\Http\Requests\HasPhoto;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasPhoto;
 use App\Http\Requests\Traits\HasPhotoTrait;
 use App\Models\Photo;
 use App\Policies\PhotoPolicy;
@@ -20,7 +20,7 @@ class GetPhotoViewRequest extends BaseApiRequest implements HasPhoto
 	 */
 	public function authorize(): bool
 	{
-		return Gate::check(PhotoPolicy::IS_VISIBLE, $this->photo);
+		return Gate::check(PhotoPolicy::CAN_SEE, $this->photo);
 	}
 
 	/**

@@ -18,15 +18,15 @@ use App\SmartAlbums\UnsortedAlbum;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
+use Tests\AbstractTestCase;
 use Tests\Feature\Lib\AlbumsUnitTest;
 use Tests\Feature\Lib\PhotosUnitTest;
 use Tests\Feature\Lib\RootAlbumUnitTest;
 use Tests\Feature\Traits\InteractWithSmartAlbums;
 use Tests\Feature\Traits\RequiresEmptyAlbums;
 use Tests\Feature\Traits\RequiresEmptyPhotos;
-use Tests\TestCase;
 
-class GeoDataTest extends TestCase
+class GeoDataTest extends AbstractTestCase
 {
 	use RequiresEmptyPhotos;
 	use RequiresEmptyAlbums;
@@ -43,7 +43,7 @@ class GeoDataTest extends TestCase
 		$this->albums_tests = new AlbumsUnitTest($this);
 		$this->root_album_tests = new RootAlbumUnitTest($this);
 
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		$this->setUpRequiresEmptyPhotos();
 		$this->setUpRequiresEmptyAlbums();
@@ -68,7 +68,7 @@ class GeoDataTest extends TestCase
 
 		try {
 			$photoResponse = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_MONGOLIA_IMAGE)
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_MONGOLIA_IMAGE)
 			);
 			$photoID = $photoResponse->offsetGet('id');
 
@@ -83,6 +83,7 @@ class GeoDataTest extends TestCase
 			 * if the tool is invoked from the command line, but the PHP wrapper
 			 * \PHPExif\Exif does not use it.
 			 */
+			/** @var Carbon $taken_at */
 			$taken_at = Carbon::create(
 				2011, 8, 17, 16, 39, 37
 			);
@@ -90,7 +91,7 @@ class GeoDataTest extends TestCase
 				[
 					'id' => $photoID,
 					'title' => 'mongolia',
-					'type' => TestCase::MIME_TYPE_IMG_JPEG,
+					'type' => AbstractTestCase::MIME_TYPE_IMG_JPEG,
 					'iso' => '200',
 					'aperture' => 'f/13.0',
 					'make' => 'NIKON CORPORATION',
@@ -98,11 +99,12 @@ class GeoDataTest extends TestCase
 					'shutter' => '1/640 s',
 					'focal' => '44 mm',
 					'altitude' => 1633,
-					'taken_at' => $taken_at->format('Y-m-d\TH:i:s.uP'),
+					'taken_at' => $taken_at->format('Y-m-d\TH:i:sP'),
 					'taken_at_orig_tz' => $taken_at->getTimezone()->getName(),
-					'is_public' => 0,
-					'is_downloadable' => true,
-					'is_share_button_visible' => true,
+					'is_public' => false,
+					'rights' => [
+						'can_download' => true,
+					],
 					'size_variants' => [
 						'thumb' => [
 							'width' => 200,
@@ -129,6 +131,7 @@ class GeoDataTest extends TestCase
 			$this->clearCachedSmartAlbums();
 			$this->albums_tests->get(UnsortedAlbum::ID, 200, null, $photoID);
 			$albumResponse = $this->albums_tests->get($albumID);
+			/** @var \App\Models\Album $album */
 			$album = static::convertJsonToObject($albumResponse);
 			static::assertCount(1, $album->photos);
 			static::assertEquals($photoID, $album->photos[0]->id);
@@ -144,8 +147,10 @@ class GeoDataTest extends TestCase
 			Configs::set(self::CONFIG_MAP_DISPLAY, true);
 			static::assertEquals(true, Configs::getValueAsBool(self::CONFIG_MAP_DISPLAY));
 			$positionDataResponse = $this->root_album_tests->getPositionData();
+			/** @var \App\Http\Resources\Collections\PositionDataResource $positionData */
 			$positionData = static::convertJsonToObject($positionDataResponse);
-			static::assertObjectHasAttribute('photos', $positionData);
+			static::assertIsObject($positionData);
+			static::assertTrue(property_exists($positionData, 'photos'));
 			static::assertCount(1, $positionData->photos);
 			static::assertEquals($photoID, $positionData->photos[0]->id);
 
@@ -158,8 +163,10 @@ class GeoDataTest extends TestCase
 			Configs::set(self::CONFIG_MAP_DISPLAY, true);
 			static::assertEquals(true, Configs::getValueAsBool(self::CONFIG_MAP_DISPLAY));
 			$positionDataResponse = $this->albums_tests->getPositionData($albumID, false);
+			/** @var \App\Http\Resources\Collections\PositionDataResource $positionData */
 			$positionData = static::convertJsonToObject($positionDataResponse);
-			static::assertObjectHasAttribute('photos', $positionData);
+			static::assertIsObject($positionData);
+			static::assertTrue(property_exists($positionData, 'photos'));
 			static::assertCount(1, $positionData->photos);
 			static::assertEquals($photoID, $positionData->photos[0]->id);
 		} finally {
@@ -190,7 +197,7 @@ class GeoDataTest extends TestCase
 		$includeSubAlbums = Configs::getValueAsBool(self::CONFIG_MAP_INCLUDE_SUBALBUMS);
 
 		try {
-			Auth::loginUsingId(0);
+			Auth::loginUsingId(1);
 			Configs::set(self::CONFIG_PUBLIC_RECENT, true);
 			Configs::set(self::CONFIG_PUBLIC_HIDDEN, false);
 			Configs::set(self::CONFIG_PUBLIC_SEARCH, true);
@@ -205,22 +212,22 @@ class GeoDataTest extends TestCase
 			$albumID13 = $this->albums_tests->add($albumID1, 'Test Album 1.3')->offsetGet('id');
 
 			$photoID1 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_AARHUS), $albumID1
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_AARHUS), $albumID1
 			)->offsetGet('id');
 			$photoID11 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_ETTLINGEN), $albumID11
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_ETTLINGEN), $albumID11
 			)->offsetGet('id');
 			$photoID12 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_TRAIN_IMAGE), $albumID12
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_TRAIN_IMAGE), $albumID12
 			)->offsetGet('id');
 			$photoID121 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_HOCHUFERWEG), $albumID121
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_HOCHUFERWEG), $albumID121
 			)->offsetGet('id');
 			$photoID13 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_MONGOLIA_IMAGE), $albumID13
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_MONGOLIA_IMAGE), $albumID13
 			)->offsetGet('id');
 
-			$this->albums_tests->set_protection_policy($albumID1, true, true, true);
+			$this->albums_tests->set_protection_policy(id: $albumID1, grants_full_photo_access: true, is_public: true, is_link_required: true);
 			// Sic! We do not make album 1.1 public to ensure that the
 			// search filter does not include too much
 			$this->albums_tests->set_protection_policy($albumID12);
@@ -240,14 +247,17 @@ class GeoDataTest extends TestCase
 			$responseForRoot = $this->root_album_tests->get();
 			$responseForRoot->assertJson([
 				'smart_albums' => [
-					'unsorted' => null,
-					'starred' => null,
-					'public' => null,
 					'recent' => ['thumb' => null],
 				],
 				'tag_albums' => [],
 				'albums' => [],
 				'shared_albums' => [],
+			]);
+			$responseForRoot->assertJsonMissing([
+				'unsorted' => null,
+				'starred' => null,
+				'public' => null,
+				'on_this_day' => null,
 			]);
 			foreach ([$albumID1, $photoID1, $photoID11, $photoID12, $photoID121, $photoID13] as $id) {
 				$responseForRoot->assertJsonMissing(['id' => $id]);

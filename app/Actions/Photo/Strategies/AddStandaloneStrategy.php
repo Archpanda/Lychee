@@ -2,32 +2,34 @@
 
 namespace App\Actions\Photo\Strategies;
 
-use App\Actions\Diagnostics\Checks\BasicPermissionCheck;
-use App\Contracts\LycheeException;
-use App\Contracts\SizeVariantFactory;
-use App\Contracts\SizeVariantNamingStrategy;
+use App\Actions\Diagnostics\Pipes\Checks\BasicPermissionCheck;
+use App\Contracts\Exceptions\LycheeException;
+use App\Contracts\Image\ImageHandlerInterface;
+use App\Contracts\Image\StreamStats;
+use App\Contracts\Models\AbstractSizeVariantNamingStrategy;
+use App\Contracts\Models\SizeVariantFactory;
 use App\DTO\ImageDimension;
+use App\Enum\SizeVariantType;
 use App\Exceptions\ConfigurationException;
 use App\Exceptions\Handler;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\MediaFileOperationException;
-use App\Image\FlysystemFile;
-use App\Image\GoogleMotionPictureHandler;
-use App\Image\ImageHandler;
-use App\Image\ImageHandlerInterface;
-use App\Image\NativeLocalFile;
+use App\Image\Files\FlysystemFile;
+use App\Image\Files\NativeLocalFile;
+use App\Image\Files\TemporaryLocalFile;
+use App\Image\Handlers\GoogleMotionPictureHandler;
+use App\Image\Handlers\ImageHandler;
+use App\Image\Handlers\VideoHandler;
 use App\Image\StreamStat;
-use App\Image\TemporaryLocalFile;
-use App\Image\VideoHandler;
+use App\Models\Configs;
 use App\Models\Photo;
-use App\Models\SizeVariant;
 use Illuminate\Contracts\Container\BindingResolutionException;
 
-class AddStandaloneStrategy extends AddBaseStrategy
+class AddStandaloneStrategy extends AbstractAddStrategy
 {
 	protected ?ImageHandlerInterface $sourceImage;
 	protected NativeLocalFile $sourceFile;
-	protected SizeVariantNamingStrategy $namingStrategy;
+	protected AbstractSizeVariantNamingStrategy $namingStrategy;
 
 	/**
 	 * @throws FrameworkException
@@ -51,7 +53,7 @@ class AddStandaloneStrategy extends AddBaseStrategy
 			$this->photo->updateTimestamps();
 			$this->sourceImage = null;
 			$this->sourceFile = $sourceFile;
-			$this->namingStrategy = resolve(SizeVariantNamingStrategy::class);
+			$this->namingStrategy = resolve(AbstractSizeVariantNamingStrategy::class);
 			$this->namingStrategy->setPhoto($this->photo);
 			$this->namingStrategy->setExtension(
 				$this->sourceFile->getOriginalExtension()
@@ -90,16 +92,13 @@ class AddStandaloneStrategy extends AddBaseStrategy
 
 		try {
 			try {
-				if ($this->photo->isPhoto()) {
-					// Load source image if it is a supported photo format
-					$this->sourceImage = new ImageHandler();
-					$this->sourceImage->load($this->sourceFile);
-				} elseif ($this->photo->isVideo()) {
+				if ($this->photo->isVideo()) {
 					$videoHandler = new VideoHandler();
 					$videoHandler->load($this->sourceFile);
 					$position = is_numeric($this->photo->aperture) ? floatval($this->photo->aperture) / 2 : 0.0;
 					$this->sourceImage = $videoHandler->extractFrame($position);
 				} else {
+					// Load source image if it is a supported photo format
 					$this->sourceImage = new ImageHandler();
 					$this->sourceImage->load($this->sourceFile);
 				}
@@ -137,7 +136,7 @@ class AddStandaloneStrategy extends AddBaseStrategy
 			// If import strategy request to delete the source file.
 			// `$this->sourceFile` will be deleted after this step.
 			// But `$this->sourceImage` remains in memory.
-			$targetFile = $this->namingStrategy->createFile(SizeVariant::ORIGINAL);
+			$targetFile = $this->namingStrategy->createFile(SizeVariantType::ORIGINAL);
 			$streamStat = $this->putSourceIntoFinalDestination($targetFile);
 
 			// If we have a temporary video file from a Google Motion Picture,
@@ -171,7 +170,7 @@ class AddStandaloneStrategy extends AddBaseStrategy
 				$this->sourceImage->getDimensions() :
 				new ImageDimension($this->parameters->exifInfo->width, $this->parameters->exifInfo->height);
 			$this->photo->size_variants->create(
-				SizeVariant::ORIGINAL,
+				SizeVariantType::ORIGINAL,
 				$targetFile->getRelativePath(),
 				$imageDim,
 				$streamStat->bytes
@@ -230,13 +229,13 @@ class AddStandaloneStrategy extends AddBaseStrategy
 	 *
 	 * @param FlysystemFile $targetFile the target file
 	 *
-	 * @returns StreamStat statistics about the final file, may differ from
+	 * @return StreamStats statistics about the final file, may differ from
 	 *                     the source file due to normalization of orientation
 	 *
 	 * @throws MediaFileOperationException
 	 * @throws ConfigurationException
 	 */
-	private function putSourceIntoFinalDestination(FlysystemFile $targetFile): StreamStat
+	private function putSourceIntoFinalDestination(FlysystemFile $targetFile): StreamStats
 	{
 		try {
 			if ($this->parameters->importMode->shallImportViaSymlink()) {
@@ -257,7 +256,9 @@ class AddStandaloneStrategy extends AddBaseStrategy
 				\Safe\symlink($sourcePath, $targetPath);
 				$streamStat = StreamStat::createFromLocalFile($this->sourceFile);
 			} else {
-				$shallNormalize = $this->sourceImage !== null && $this->parameters->exifInfo->orientation !== 1;
+				$shallNormalize = Configs::getValueAsBool('auto_fix_orientation') &&
+					$this->sourceImage !== null &&
+					$this->parameters->exifInfo->orientation !== 1;
 
 				if ($shallNormalize) {
 					// Saving the loaded image to the final target normalizes

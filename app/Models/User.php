@@ -5,11 +5,10 @@ namespace App\Models;
 use App\Exceptions\ModelDBException;
 use App\Exceptions\UnauthenticatedException;
 use App\Models\Extensions\ThrowsConsistentExceptions;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UseFixedQueryBuilder;
 use App\Models\Extensions\UTCBasedTimes;
 use Carbon\Exceptions\InvalidFormatException;
-use DarkGhostHunter\Larapass\Contracts\WebAuthnAuthenticatable;
-use DarkGhostHunter\Larapass\WebAuthnAuthentication;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -19,7 +18,10 @@ use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use function Safe\substr;
+use Laragear\WebAuthn\Contracts\WebAuthnAuthenticatable;
+use Laragear\WebAuthn\Models\WebAuthnCredential;
+use Laragear\WebAuthn\WebAuthnAuthentication;
+use function Safe\mb_convert_encoding;
 
 /**
  * App\Models\User.
@@ -30,13 +32,22 @@ use function Safe\substr;
  * @property string                                                $username
  * @property string|null                                           $password
  * @property string|null                                           $email
+ * @property bool                                                  $may_administrate
  * @property bool                                                  $may_upload
- * @property bool                                                  $is_locked
+ * @property bool                                                  $may_edit_own_settings
+ * @property string                                                $name
+ * @property string|null                                           $token
  * @property string|null                                           $remember_token
  * @property Collection<BaseAlbumImpl>                             $albums
+ * @property int|null                                              $albums_count
  * @property DatabaseNotificationCollection|DatabaseNotification[] $notifications
+ * @property int|null                                              $notifications_count
  * @property Collection<BaseAlbumImpl>                             $shared
+ * @property int|null                                              $shared_count
  * @property Collection<Photo>                                     $photos
+ * @property int|null                                              $photos_count
+ * @property Collection<int, WebAuthnCredential>                   $webAuthnCredentials
+ * @property int|null                                              $web_authn_credentials_count
  */
 class User extends Authenticatable implements WebAuthnAuthenticatable
 {
@@ -48,6 +59,7 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	}
 	/** @phpstan-use UseFixedQueryBuilder<User> */
 	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	/**
 	 * @var string[] the attributes that are mass assignable
@@ -59,24 +71,15 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	];
 
 	/**
-	 * @var string[] the attributes that should be hidden for arrays
-	 */
-	protected $hidden = [
-		'password',
-		'remember_token',
-		'created_at',
-		'updated_at',
-	];
-
-	/**
 	 * @var array<string, string>
 	 */
 	protected $casts = [
 		'id' => 'integer',
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
+		'may_administrate' => 'boolean',
 		'may_upload' => 'boolean',
-		'is_locked' => 'boolean',
+		'may_edit_own_settings' => 'boolean',
 	];
 
 	/**
@@ -121,15 +124,16 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	 */
 	public function username(): string
 	{
-		return utf8_encode($this->username);
+		// @phpstan-ignore-next-line This is temporary and should hopefully be fixed soon by Safe with proper type hinting.
+		return mb_convert_encoding($this->username, 'UTF-8');
 	}
 
 	/**
-	 * Used by Larapass.
+	 * Used by Larapass since 2022-09-21.
 	 *
 	 * @return string
 	 */
-	public function name(): string
+	public function getNameAttribute(): string
 	{
 		// If strings starts by '$2y$', it is very likely that it's a blowfish hash.
 		return substr($this->username, 0, 4) === '$2y$' ? 'Admin' : $this->username;
@@ -150,22 +154,31 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	 */
 	public function delete(): bool
 	{
-		$now = Carbon::now();
-		$newOwnerID = Auth::id() ?? throw new UnauthenticatedException();
-
 		/** @var HasMany[] $ownershipRelations */
 		$ownershipRelations = [$this->photos(), $this->albums()];
+		$hasAny = false;
 
 		foreach ($ownershipRelations as $relation) {
-			// We must also update the `updated_at` column of the related
-			// models in case clients have cached these models.
-			$relation->update([
-				$relation->getForeignKeyName() => $newOwnerID,
-				$relation->getRelated()->getUpdatedAtColumn() => $relation->getRelated()->fromDateTime($now),
-			]);
+			$hasAny = $hasAny || $relation->count() > 0;
+		}
+
+		if ($hasAny) {
+			// only try update relations if there are any to allow deleting users from migrations (relations are moved before deleting)
+			$now = Carbon::now();
+			$newOwnerID = Auth::id() ?? throw new UnauthenticatedException();
+
+			foreach ($ownershipRelations as $relation) {
+				// We must also update the `updated_at` column of the related
+				// models in case clients have cached these models.
+				$relation->update([
+					$relation->getForeignKeyName() => $newOwnerID,
+					$relation->getRelated()->getUpdatedAtColumn() => $relation->getRelated()->fromDateTime($now),
+				]);
+			}
 		}
 
 		$this->shared()->delete();
+		WebAuthnCredential::where('authenticatable_id', '=', $this->id)->delete();
 
 		return $this->parentDelete();
 	}

@@ -12,51 +12,26 @@
 
 namespace Tests\Feature;
 
-use App\Legacy\AdminAuthentication;
 use App\Models\Configs;
 use App\Models\User;
+use App\SmartAlbums\OnThisDayAlbum;
 use App\SmartAlbums\PublicAlbum;
 use App\SmartAlbums\StarredAlbum;
 use App\SmartAlbums\UnsortedAlbum;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Session;
 use PHPUnit\Framework\ExpectationFailedException;
-use SebastianBergmann\RecursionContext\InvalidArgumentException;
+use function Safe\json_decode;
+use Tests\AbstractTestCase;
 use Tests\Feature\Lib\AlbumsUnitTest;
 use Tests\Feature\Lib\SessionUnitTest;
 use Tests\Feature\Lib\UsersUnitTest;
 use Tests\Feature\Traits\InteractWithSmartAlbums;
-use Tests\TestCase;
-use Throwable;
 
-class UsersTest extends TestCase
+class UsersTest extends AbstractTestCase
 {
 	use InteractWithSmartAlbums;
-
-	public function testSetAdminLoginIfAdminUnconfigured(): void
-	{
-		/**
-		 * because there is no dependency injection in test cases.
-		 */
-		$sessions_test = new SessionUnitTest($this);
-
-		if (!AdminAuthentication::isAdminNotRegistered()) {
-			static::markTestSkipped('Admin user is registered; test skipped.');
-		}
-
-		static::assertTrue(AdminAuthentication::loginAsAdminIfNotRegistered());
-		$sessions_test->set_admin('lychee', 'password');
-		$sessions_test->logout();
-		static::assertFalse(AdminAuthentication::isAdminNotRegistered());
-
-		$sessions_test->set_admin('lychee', 'password', 403, 'Admin user is already registered');
-
-		$sessions_test->login('lychee', 'password');
-		$sessions_test->logout();
-
-		$sessions_test->login('foo', 'bar', 401);
-		$sessions_test->login('lychee', 'bar', 401);
-		$sessions_test->login('foo', 'password', 401);
-	}
 
 	public function testUsers(): void
 	{
@@ -90,60 +65,92 @@ class UsersTest extends TestCase
 		 * 19. try access shared pictures (public)
 		 * 20. try access starred pictures
 		 * 21. try access recent pictures
-		 * 22. change password without old password => should fail
-		 * 23. change password with wrong password => should fail
-		 * 24. change username & password with duplicate username => should fail
-		 * 25. change username & password
-		 * 26. log out
+		 * 22. try access on_this_day pictures
+		 * 23. change password without old password => should fail
+		 * 24. change password with wrong password => should fail
+		 * 25. change username & password with duplicate username => should fail
+		 * 26. change username & password
+		 * 27. log out
 		 *
-		 * 27. log as 'test_abcde'
-		 * 28. log out
+		 * 28. log as 'test_abcde'
+		 * 29. log out
 		 *
-		 * 29. log as admin
-		 * 30. delete user
-		 * 31. log out
+		 * 30. log as admin
+		 * 31. delete user
+		 * 32. log out
 		 *
-		 * 32. log as admin
-		 * 33  get email => should be blank
-		 * 34. update email
-		 * 35. get email
-		 * 36  update email to blank
-		 * 37. log out
+		 * 33. log as admin
+		 * 34  get email => should be blank
+		 * 35. update email
+		 * 36. get email
+		 * 37. update email to blank
+		 * 38. try to delete yourself (not allowed)
+		 * 39. log out
 		 */
 
 		// 1
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		// 2
-		$users_test->add('test_abcd', 'password_abcd', true, true);
+		$users_test->add(
+			username: 'test_abcd',
+			password: 'password_abcd',
+			mayUpload: true,
+			mayEditOwnSettings: false);
 
 		// 3
 		$response = $users_test->list();
 
 		// 4
-		$t = json_decode($response->getContent());
+		$content = $response->getContent();
+		$this->assertNotFalse($content);
+		$t = json_decode($content);
 		$id = end($t)->id;
 		$response->assertJsonFragment([
 			'id' => $id,
 			'username' => 'test_abcd',
 			'may_upload' => true,
-			'is_locked' => true,
+			'may_edit_own_settings' => false,
 		]);
 
 		// 5
-		$users_test->add('test_abcd', 'password_abcd', true, true, 409, 'Username already exists');
+		$users_test->add(
+			username: 'test_abcd',
+			password: 'password_abcd',
+			mayUpload: true,
+			mayEditOwnSettings: false,
+			expectedStatusCode: 409,
+			assertSee: 'Username already exists');
 
 		// 6
-		$users_test->save($id, 'test_abcde', 'password_testing', false, true);
+		$users_test->save(
+			id: $id,
+			username: 'test_abcde',
+			password: 'password_testing',
+			mayUpload: false,
+			mayEditOwnSettings: false);
 
 		// 7
-		$users_test->add('test_abcd2', 'password_abcd', true, true);
+		$users_test->add(
+			username: 'test_abcd2',
+			password: 'password_abcd',
+			mayUpload: true,
+			mayEditOwnSettings: false);
 		$response = $users_test->list();
-		$t = json_decode($response->getContent());
+		$content = $response->getContent();
+		$this->assertNotFalse($content);
+		$t = json_decode($content);
 		$id2 = end($t)->id;
 
 		// 8
-		$users_test->save($id2, 'test_abcde', 'password_testing', false, true, 409, 'Username already exists');
+		$users_test->save(
+			id: $id2,
+			username: 'test_abcde',
+			password: 'password_testing',
+			mayUpload: false,
+			mayEditOwnSettings: false,
+			expectedStatusCode: 409,
+			assertSee: 'Username already exists');
 
 		// 9
 		$sessions_test->logout();
@@ -155,19 +162,34 @@ class UsersTest extends TestCase
 		$users_test->list(403);
 
 		// 12
-		$sessions_test->update_login('test_abcde', 'password_testing2', '', 422, 'The old password field is required.');
+		$sessions_test->update_login(
+			login: 'test_abcde',
+			password: 'password_testing2',
+			oldPassword: '',
+			expectedStatusCode: 422,
+			assertSee: 'The old password field is required.');
 
 		// 13
-		$sessions_test->update_login('test_abcde', 'password_testing2', 'password_testing2', 403, 'Insufficient privileges');
+		$sessions_test->update_login(
+			login: 'test_abcde',
+			password: 'password_testing2',
+			oldPassword: 'password_testing2',
+			expectedStatusCode: 403,
+			assertSee: 'Insufficient privileges');
 
 		// 14
 		$sessions_test->logout();
 
 		// 15
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		// 16
-		$users_test->save($id, 'test_abcde', 'password_testing', false, false);
+		$users_test->save(
+			id: $id,
+			username: 'test_abcde',
+			password: 'password_testing',
+			mayUpload: false,
+			mayEditOwnSettings: true);
 
 		// 17
 		$sessions_test->logout();
@@ -187,68 +209,127 @@ class UsersTest extends TestCase
 		$album_tests->get(UnsortedAlbum::ID, 403);
 
 		// 22
-		$sessions_test->update_login('test_abcde', 'password_testing2', '', 422, 'The old password field is required.');
+		$album_tests->get(OnThisDayAlbum::ID, 403);
 
 		// 23
-		$sessions_test->update_login('test_abcde', 'password_testing2', 'password_testing2', 401, 'Previous password is invalid');
+		$sessions_test->update_login(
+			login: 'test_abcde',
+			password: 'password_testing2',
+			oldPassword: '',
+			expectedStatusCode: 422,
+			assertSee: 'The old password field is required.');
 
 		// 24
-		$sessions_test->update_login('test_abcd2', 'password_testing2', 'password_testing', 409, 'Username already exists');
+		$sessions_test->update_login(
+			login: 'test_abcde',
+			password: 'password_testing2',
+			oldPassword: 'password_testing2',
+			expectedStatusCode: 401,
+			assertSee: 'Previous password is invalid');
 
+		$user = User::where('username', '=', 'test_abcde')->firstOrFail();
 		// 25
-		$sessions_test->update_login('test_abcdef', 'password_testing2', 'password_testing');
+		$sessions_test->update_login(
+			login: 'test_abcd2',
+			password: 'password_testing2',
+			oldPassword: 'password_testing',
+			expectedStatusCode: 409,
+			assertSee: 'Username already exists');
+
+		$this->assertEquals($user->password, Auth::user()->password);
+		$this->assertTrue(Hash::check('password_testing', Auth::user()->password));
 
 		// 26
-		$sessions_test->logout();
+		$sessions_test->update_login(
+			login: 'test_abcdef',
+			password: 'password_testing2',
+			oldPassword: 'password_testing');
 
 		// 27
-		$sessions_test->login('test_abcdef', 'password_testing2');
-
-		// 28
 		$sessions_test->logout();
 
+		// 28
+		$sessions_test->login('test_abcdef', 'password_testing2');
+
 		// 29
-		Auth::loginUsingId(0);
+		$sessions_test->logout();
 
 		// 30
+		Auth::loginUsingId(1);
+
+		// 31
 		$users_test->delete($id);
 		$users_test->delete($id2);
 
 		// those should fail because we do not touch user of ID 0
-		$users_test->delete('0', 422);
+		$users_test->delete(0, 422);
 		// those should fail because there are no user with id -1
-		$users_test->delete('-1', 422);
-		$users_test->save('-1', 'toto', 'test', false, true, 422);
-
-		// 31
-		$sessions_test->logout();
+		$users_test->delete(-1, 422);
+		$users_test->save(-1, 'toto', 'test', false, true, 422);
 
 		// 32
-		Auth::loginUsingId(0);
+		$sessions_test->logout();
+
+		// 33
+		Auth::loginUsingId(1);
 
 		$configs = Configs::get();
 		$store_new_photos_notification = $configs['new_photos_notification'];
 		Configs::set('new_photos_notification', '1');
 
-		// 33
+		// 34
 		$users_test->get_email();
 
-		// 34
+		// 35
 		// Note, this must be a proper email address for an existing mail
 		// domain, as the Laravel validator runs a DNS lookup.
 		// This means, `void@unexisting.nowhere` though syntactically being
 		// correct will trigger an error response.
 		$users_test->update_email('legal@support.github.com');
 
-		// 35
+		// 36
 		$users_test->get_email();
 
-		// 36
+		// 37
 		$users_test->update_email(null);
 
-		// 37
+		// 38
+		$response = $users_test->delete(intval(Auth::id()), 403);
+
+		// 39
 		$sessions_test->logout();
 		Configs::set('new_photos_notification', $store_new_photos_notification);
+	}
+
+	public function testResetToken(): void
+	{
+		$users_test = new UsersUnitTest($this);
+
+		Auth::loginUsingId(1);
+
+		$oldToken = $users_test->reset_token()->offsetGet('token');
+		$newToken = $users_test->reset_token()->offsetGet('token');
+		self::assertNotEquals($oldToken, $newToken);
+
+		Auth::logout();
+	}
+
+	public function testUnsetToken(): void
+	{
+		$users_test = new UsersUnitTest($this);
+
+		Auth::loginUsingId(1);
+
+		$oldToken = $users_test->reset_token()->offsetGet('token');
+		self::assertNotNull($oldToken);
+
+		$users_test->unset_token();
+		$userResponse = $users_test->get_user();
+		$userResponse->assertJson([
+			'has_token' => false,
+		]);
+
+		Auth::logout();
 	}
 
 	/**
@@ -256,9 +337,8 @@ class UsersTest extends TestCase
 	 *
 	 * @return void
 	 *
-	 * @throws InvalidArgumentException
 	 * @throws ExpectationFailedException
-	 * @throws Throwable
+	 * @throws \Throwable
 	 */
 	public function regressionTestAdminAllMighty(): void
 	{
@@ -267,42 +347,58 @@ class UsersTest extends TestCase
 		$response = $sessions_test->init();
 		$response->assertJsonFragment([
 			'rights' => [
-				'is_admin' => false,
-				'may_upload' => false,
-				'is_locked' => true,
+				'can_administrate' => false,
+				'can_upload_root' => false,
+				'can_edit_own_settings' => true,
 			], ]);
 
 		// update Admin user to non valid rights
-		$admin = User::findOrFail(0);
+		$admin = User::findOrFail(1);
 		$admin->may_upload = false;
-		$admin->is_locked = true;
+		$admin->may_edit_own_settings = true;
 		$admin->save();
 
 		// Log as admin and check the rights
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$response = $sessions_test->init();
 		$response->assertJsonFragment([
 			'rights' => [
-				'is_admin' => true,
-				'may_upload' => true,
-				'is_locked' => false,
+				'can_administrate' => true,
+				'can_upload_root' => true,
+				'can_edit_own_settings' => false,
 			], ]);
 		$sessions_test->logout();
 
 		// Correct the rights
 		$admin->may_upload = true;
-		$admin->is_locked = false;
+		$admin->may_edit_own_settings = false;
 		$admin->save();
 
 		// Log as admin and verify behaviour
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$response = $sessions_test->init();
 		$response->assertJsonFragment([
 			'rights' => [
-				'is_admin' => true,
-				'may_upload' => true,
-				'is_locked' => false,
+				'can_administrate' => true,
+				'can_upload_root' => true,
+				'can_edit_own_settings' => false,
 			], ]);
 		$sessions_test->logout();
+	}
+
+	public function testGetAuthenticatedUser(): void
+	{
+		$users_test = new UsersUnitTest($this);
+
+		Auth::logout();
+		Session::flush();
+
+		$users_test->get_user(401);
+
+		Auth::loginUsingId(1);
+
+		$users_test->get_user(200, [
+			'id' => 1,
+		]);
 	}
 }

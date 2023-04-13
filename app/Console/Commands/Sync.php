@@ -4,15 +4,13 @@ namespace App\Console\Commands;
 
 use App\Actions\Import\Exec;
 use App\Actions\Photo\Strategies\ImportMode;
-use App\Contracts\ExternalLycheeException;
+use App\Contracts\Exceptions\ExternalLycheeException;
 use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\UnexpectedException;
 use App\Models\Album;
 use App\Models\Configs;
 use Exception;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Auth;
-use function Safe\sprintf;
 use Symfony\Component\Console\Exception\ExceptionInterface as SymfonyConsoleException;
 
 class Sync extends Command
@@ -29,7 +27,7 @@ class Sync extends Command
 	'lychee:sync ' .
 		'{dir* : directory to sync} ' . // string[]
 		'{--album_id= : Album ID to import to} ' . // string or null
-		'{--owner_id=0 : Owner ID of imported photos} ' . // string
+		'{--owner_id=1 : Owner ID of imported photos} ' . // string
 		'{--resync_metadata : Re-sync metadata of existing files}  ' . // bool
 		'{--delete_imported=%s : Delete the original files} ' . // string
 		'{--import_via_symlink=%s : Imports photos from via a symlink instead of copying the files} ' . // string
@@ -106,18 +104,17 @@ class Sync extends Command
 					$importViaSymlink,
 					$resyncMetadata
 				),
+				$owner_id,
 				true,
 				0
 			);
-
-			Auth::loginUsingId($owner_id);
 
 			$this->info('Start syncing.');
 
 			foreach ($directories as $directory) {
 				try {
 					$exec->do($directory, $album);
-				} catch (Exception $e) {
+				} catch (\Exception $e) {
 					$this->error($e);
 				}
 			}

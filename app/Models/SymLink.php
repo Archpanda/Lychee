@@ -6,7 +6,7 @@ use App\Casts\MustNotSetCast;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Image\FlysystemFile;
+use App\Image\Files\FlysystemFile;
 use App\Models\Extensions\HasAttributesPatch;
 use App\Models\Extensions\ThrowsConsistentExceptions;
 use App\Models\Extensions\UseFixedQueryBuilder;
@@ -55,8 +55,8 @@ class SymLink extends Model
 	];
 
 	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
+	 * @var array<int,string> The list of attributes which exist as columns of the DB
+	 *                        relation but shall not be serialized to JSON
 	 */
 	protected $hidden = [
 		'size_variant', // see above and otherwise infinite loops will occur

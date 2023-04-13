@@ -6,29 +6,26 @@ use App\Actions\Photo\Delete;
 use App\Casts\ArrayCast;
 use App\Casts\DateTimeWithTimezoneCast;
 use App\Casts\MustNotSetCast;
-use App\Contracts\HasRandomID;
+use App\Constants\RandomID;
 use App\Exceptions\Internal\IllegalOrderOfOperationException;
 use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\ZeroModuloException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
 use App\Facades\Helpers;
-use App\Image\MediaFile;
+use App\Image\Files\BaseMediaFile;
 use App\Models\Extensions\HasAttributesPatch;
 use App\Models\Extensions\HasBidirectionalRelationships;
 use App\Models\Extensions\HasRandomIDAndLegacyTimeBasedID;
 use App\Models\Extensions\SizeVariants;
 use App\Models\Extensions\ThrowsConsistentExceptions;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UseFixedQueryBuilder;
 use App\Models\Extensions\UTCBasedTimes;
-use App\Policies\PhotoPolicy;
 use App\Relations\HasManySizeVariants;
-use App\Relations\LinkedPhotoCollection;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use function Safe\preg_match;
 
@@ -72,10 +69,8 @@ use function Safe\preg_match;
  * @property Album|null   $album
  * @property User         $owner
  * @property SizeVariants $size_variants
- * @property bool         $is_downloadable
- * @property bool         $is_share_button_visible
  */
-class Photo extends Model implements HasRandomID
+class Photo extends Model
 {
 	use UTCBasedTimes;
 	use HasAttributesPatch;
@@ -84,6 +79,7 @@ class Photo extends Model implements HasRandomID
 	use HasBidirectionalRelationships;
 	/** @phpstan-use UseFixedQueryBuilder<Photo> */
 	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	/**
 	 * @var string The type of the primary key
@@ -98,14 +94,12 @@ class Photo extends Model implements HasRandomID
 	public $incrementing = false;
 
 	protected $casts = [
-		HasRandomID::LEGACY_ID_NAME => HasRandomID::LEGACY_ID_TYPE,
+		RandomID::LEGACY_ID_NAME => RandomID::LEGACY_ID_TYPE,
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
 		'taken_at' => DateTimeWithTimezoneCast::class,
 		'live_photo_full_path' => MustNotSetCast::class . ':live_photo_short_path',
 		'live_photo_url' => MustNotSetCast::class . ':live_photo_short_path',
-		'is_downloadable' => MustNotSetCast::class,
-		'is_share_button_visible' => MustNotSetCast::class,
 		'owner_id' => 'integer',
 		'is_starred' => 'boolean',
 		'is_public' => 'boolean',
@@ -115,47 +109,6 @@ class Photo extends Model implements HasRandomID
 		'altitude' => 'float',
 		'img_direction' => 'float',
 	];
-
-	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		HasRandomID::LEGACY_ID_NAME,
-		'album',  // do not serialize relation in order to avoid infinite loops
-		'owner',  // do not serialize relation
-		'owner_id',
-		'live_photo_short_path', // serialize live_photo_url instead
-	];
-
-	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
-	 */
-	protected $appends = [
-		'live_photo_url',
-		'is_downloadable',
-		'is_share_button_visible',
-	];
-
-	/**
-	 * Creates a new instance of {@link LinkedPhotoCollection}.
-	 *
-	 * The only difference between an ordinary {@link Collection} and a
-	 * {@link LinkedPhotoCollection} is that the latter also adds links to
-	 * the previous and next photo if the collection is serialized to JSON.
-	 * This method is called by all relations which need to create a
-	 * collection of photos.
-	 *
-	 * @param array $models a list of {@link Photo} models
-	 *
-	 * @return LinkedPhotoCollection
-	 */
-	public function newCollection(array $models = []): LinkedPhotoCollection
-	{
-		return new LinkedPhotoCollection($models);
-	}
 
 	/**
 	 * Return the relationship between a Photo and its Album.
@@ -244,13 +197,17 @@ class Photo extends Model implements HasRandomID
 	 * part of an album) or the default license of the application-wide
 	 * setting is returned.
 	 *
-	 * @param string $license the value from the database passed in by
-	 *                        the Eloquent framework
+	 * @param ?string $license the value from the database passed in by
+	 *                         the Eloquent framework
 	 *
 	 * @return string
 	 */
-	protected function getLicenseAttribute(string $license): string
+	protected function getLicenseAttribute(?string $license): string
 	{
+		if ($license === null) {
+			return Configs::getValueAsString('default_license');
+		}
+
 		if ($license !== 'none') {
 			return $license;
 		}
@@ -325,44 +282,6 @@ class Photo extends Model implements HasRandomID
 	}
 
 	/**
-	 * Accessor for the "virtual" attribute {@see Photo::$is_downloadable}.
-	 *
-	 * The photo is downloadable if the currently authenticated user is the
-	 * owner or if the photo is part of a downloadable album or if it is
-	 * unsorted and unsorted photos are configured to be downloadable by
-	 * default.
-	 *
-	 * @return bool true if the photo is downloadable
-	 */
-	protected function getIsDownloadableAttribute(): bool
-	{
-		return
-			Gate::check(PhotoPolicy::IS_OWNER, $this) ||
-			($this->album_id !== null && $this->album->is_downloadable) ||
-			($this->album_id === null && Configs::getValueAsBool('downloadable'));
-	}
-
-	/**
-	 * Accessor for the "virtual" attribute {@see Photo::$is_share_button_visible}.
-	 *
-	 * The share button is visible if the currently authenticated user is the
-	 * owner or if the photo is part of an album which has enabled the
-	 * share button or if the photo is unsorted and unsorted photos are
-	 * configured to be sharable by default.
-	 *
-	 * @return bool true if the share button is visible for this photo
-	 */
-	protected function getIsShareButtonVisibleAttribute(): bool
-	{
-		$default = Configs::getValueAsBool('share_button_visible');
-
-		return
-			Gate::check(PhotoPolicy::IS_OWNER, $this) ||
-			($this->album_id !== null && $this->album->is_share_button_visible) ||
-			($this->album_id === null && $default);
-	}
-
-	/**
 	 * Checks if the photo represents a (real) photo (as opposed to video or raw).
 	 *
 	 * @return bool
@@ -375,7 +294,7 @@ class Photo extends Model implements HasRandomID
 			throw new IllegalOrderOfOperationException('Photo::isPhoto() must not be called before Photo::$type has been set');
 		}
 
-		return MediaFile::isSupportedImageMimeType($this->type);
+		return BaseMediaFile::isSupportedImageMimeType($this->type);
 	}
 
 	/**
@@ -391,7 +310,7 @@ class Photo extends Model implements HasRandomID
 			throw new IllegalOrderOfOperationException('Photo::isVideo() must not be called before Photo::$type has been set');
 		}
 
-		return MediaFile::isSupportedVideoMimeType($this->type);
+		return BaseMediaFile::isSupportedVideoMimeType($this->type);
 	}
 
 	/**
@@ -407,53 +326,6 @@ class Photo extends Model implements HasRandomID
 	public function isRaw(): bool
 	{
 		return !$this->isPhoto() && !$this->isVideo();
-	}
-
-	/**
-	 * Serializes the model into an array.
-	 *
-	 * This method is also invoked by Eloquent when someone invokes
-	 * {@link Model::toJson()} or {@link Model::jsonSerialize()}.
-	 *
-	 * This method removes the URL to the full resolution of a photo, if the
-	 * client is not allowed to see that.
-	 *
-	 * @return array
-	 *
-	 * @throws IllegalOrderOfOperationException
-	 */
-	public function toArray(): array
-	{
-		$result = parent::toArray();
-
-		// Modify the attribute `public`
-		// The current front-end implementation does not expect a boolean
-		// but a tri-state integer acc. to the following interpretation
-		//  - 0 => the photo is not publicly visible
-		//  - 1 => the photo is publicly visible on its own right
-		//  - 2 => the photo is publicly visible because its album is public
-		if ($this->album_id !== null && $this->album->is_public) {
-			$result['is_public'] = 2;
-		} else {
-			$result['is_public'] = $result['is_public'] === true ? 1 : 0;
-		}
-
-		// Downgrades the accessible resolution of a photo
-		// The decision logic here is a merge of three formerly independent
-		// (and slightly different) approaches
-		if (
-			!Gate::check(PhotoPolicy::IS_OWNER, $this) &&
-			!$this->isVideo() &&
-			($result['size_variants']['medium2x'] !== null || $result['size_variants']['medium'] !== null) &&
-			(
-				($this->album_id !== null && !$this->album->grants_full_photo) ||
-				($this->album_id === null && !Configs::getValueAsBool('full_photo'))
-			)
-		) {
-			unset($result['size_variants']['original']['url']);
-		}
-
-		return $result;
 	}
 
 	/**

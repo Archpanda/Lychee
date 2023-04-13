@@ -15,9 +15,9 @@ namespace Tests\Feature;
 use App\Models\Configs;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
 
-class IndexTest extends TestCase
+class IndexTest extends AbstractTestCase
 {
 	/**
 	 * Testing the Login interface.
@@ -30,10 +30,10 @@ class IndexTest extends TestCase
 		 * check if we can actually get a nice answer.
 		 */
 		$response = $this->get('/');
-		$response->assertOk();
+		$this->assertOk($response);
 
 		$response = $this->postJson('/api/Albums::get');
-		$response->assertOk();
+		$this->assertOk($response);
 	}
 
 	/**
@@ -47,21 +47,20 @@ class IndexTest extends TestCase
 		Session::flush();
 		// we don't want a non admin to access this
 		$response = $this->get('/phpinfo');
-		$response->assertForbidden();
+		$this->assertForbidden($response);
 	}
 
 	public function testLandingPage(): void
 	{
-		$landing_on_off = Configs::getValue('landing_page_enable', '0');
+		$landing_on_off = Configs::getValue('landing_page_enable');
 		Configs::set('landing_page_enable', 1);
 
 		$response = $this->get('/');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('landing');
 
 		$response = $this->get('/gallery');
-		$response->assertOk();
-		$response->assertViewIs('gallery');
+		$this->assertOk($response);
 
 		Configs::set('landing_page_enable', $landing_on_off);
 	}

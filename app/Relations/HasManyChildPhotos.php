@@ -2,15 +2,14 @@
 
 namespace App\Relations;
 
-use App\Contracts\InternalLycheeException;
-use App\DTO\SortingCriterion;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
 use App\Models\Album;
 use App\Models\Extensions\FixedQueryBuilder;
 use App\Models\Extensions\SortingDecorator;
 use App\Models\Photo;
 use App\Policies\PhotoQueryPolicy;
-use Doctrine\Instantiator\Exception\InvalidArgumentException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\InvalidCastException;
 use Illuminate\Database\Eloquent\Model;
@@ -84,7 +83,7 @@ class HasManyChildPhotos extends HasManyBidirectionally
 	/**
 	 * @throws InvalidOrderDirectionException
 	 */
-	public function getResults()
+	public function getResults(): Collection
 	{
 		if (is_null($this->getParentKey())) {
 			return $this->related->newCollection();
@@ -93,8 +92,8 @@ class HasManyChildPhotos extends HasManyBidirectionally
 		$albumSorting = $this->getParent()->getEffectiveSorting();
 
 		return (new SortingDecorator($this->query))
-			->orderBy(
-				'photos.' . $albumSorting->column,
+			->orderPhotosBy(
+				$albumSorting->column,
 				$albumSorting->order
 			)
 			->get();
@@ -109,7 +108,6 @@ class HasManyChildPhotos extends HasManyBidirectionally
 	 *
 	 * @return array
 	 *
-	 * @throws InvalidArgumentException
 	 * @throws \LogicException
 	 * @throws InvalidCastException
 	 */
@@ -128,9 +126,9 @@ class HasManyChildPhotos extends HasManyBidirectionally
 				$sorting = $model->getEffectiveSorting();
 				$childrenOfModel = $childrenOfModel
 					->sortBy(
-						$sorting->column,
+						$sorting->column->value,
 						in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
-						$sorting->order === SortingCriterion::DESC
+						$sorting->order === OrderSortingType::DESC
 					)
 					->values();
 				$model->setRelation($relation, $childrenOfModel);

@@ -3,7 +3,7 @@
 namespace App\Actions\Album;
 
 use App\Actions\Photo\Delete as PhotoDelete;
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\QueryBuilderException;
 use App\Exceptions\ModelDBException;
@@ -12,15 +12,12 @@ use App\Image\FileDeleter;
 use App\Models\Album;
 use App\Models\BaseAlbumImpl;
 use App\Models\TagAlbum;
-use App\Policies\UserPolicy;
 use App\SmartAlbums\UnsortedAlbum;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Query\Builder as BaseBuilder;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
 use Safe\Exceptions\ArrayException;
-use function Safe\usort;
 
 /**
  * Deletes the albums with the designated IDs **efficiently**.
@@ -75,7 +72,7 @@ class Delete extends Action
 			// because it provides deletion of photos
 			if (in_array(UnsortedAlbum::ID, $albumIDs, true)) {
 				$query = UnsortedAlbum::getInstance()->photos();
-				if (!Gate::check(UserPolicy::IS_ADMIN)) {
+				if (Auth::user()?->may_administrate !== true) {
 					$query->where('owner_id', '=', Auth::id() ?? throw new UnauthenticatedException());
 				}
 				$unsortedPhotoIDs = $query->pluck('id')->all();
@@ -97,10 +94,12 @@ class Delete extends Action
 			/** @var Album $album */
 			foreach ($albums as $album) {
 				// Collect all (aka recursive) sub-albums in each album
-				$subAlbums = $album->descendants()->select(['id', 'track_short_path'])->get();
+				$subAlbums = $album->descendants()->without(['cover', 'thumb'])->select(['id', 'track_short_path'])->get();
 				$recursiveAlbumIDs = array_merge($recursiveAlbumIDs, $subAlbums->pluck('id')->all());
 				$recursiveAlbumTracks = $recursiveAlbumTracks->merge($subAlbums->pluck('track_short_path'));
 			}
+			// prune the null values
+			$recursiveAlbumTracks = $recursiveAlbumTracks->filter(fn ($val) => $val !== null);
 
 			// Delete the photos from DB and obtain the list of files which need
 			// to be deleted later

@@ -13,13 +13,16 @@
 namespace Tests\Feature\Lib;
 
 use Illuminate\Testing\TestResponse;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Traits\CatchFailures;
 
 class RootAlbumUnitTest
 {
-	private TestCase $testCase;
+	use CatchFailures;
 
-	public function __construct(TestCase $testCase)
+	private AbstractTestCase $testCase;
+
+	public function __construct(AbstractTestCase $testCase)
 	{
 		$this->testCase = $testCase;
 	}
@@ -39,11 +42,11 @@ class RootAlbumUnitTest
 		?string $assertDontSee = null
 	): TestResponse {
 		$response = $this->testCase->postJson('/api/Albums::get');
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
-		if ($assertDontSee) {
+		if ($assertDontSee !== null) {
 			$response->assertDontSee($assertDontSee, false);
 		}
 
@@ -65,11 +68,11 @@ class RootAlbumUnitTest
 		?string $assertDontSee = null
 	): TestResponse {
 		$response = $this->testCase->postJson('/api/Albums::tree');
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
-		if ($assertDontSee) {
+		if ($assertDontSee !== null) {
 			$response->assertDontSee($assertDontSee, false);
 		}
 
@@ -89,8 +92,8 @@ class RootAlbumUnitTest
 		?string $assertSee = null
 	): TestResponse {
 		$response = $this->testCase->postJson('/api/Albums::getPositionData');
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 

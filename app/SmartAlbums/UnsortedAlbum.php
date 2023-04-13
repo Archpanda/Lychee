@@ -10,7 +10,6 @@ class UnsortedAlbum extends BaseSmartAlbum
 {
 	private static ?self $instance = null;
 	public const ID = 'unsorted';
-	public const TITLE = 'Unsorted';
 
 	/**
 	 * @throws ConfigurationKeyMissingException
@@ -20,7 +19,7 @@ class UnsortedAlbum extends BaseSmartAlbum
 	{
 		parent::__construct(
 			self::ID,
-			self::TITLE,
+			__('lychee.UNSORTED'),
 			false,
 			fn (Builder $q) => $q->whereNull('photos.album_id')
 		);

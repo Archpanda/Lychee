@@ -2,7 +2,7 @@
 
 namespace App\Factories;
 
-use App\Contracts\AbstractAlbum;
+use App\Contracts\Models\AbstractAlbum;
 use App\Exceptions\Internal\InvalidSmartIdException;
 use App\Exceptions\Internal\LycheeAssertionError;
 use App\Models\Album;
@@ -10,6 +10,7 @@ use App\Models\BaseAlbumImpl;
 use App\Models\Extensions\BaseAlbum;
 use App\Models\TagAlbum;
 use App\SmartAlbums\BaseSmartAlbum;
+use App\SmartAlbums\OnThisDayAlbum;
 use App\SmartAlbums\PublicAlbum;
 use App\SmartAlbums\RecentAlbum;
 use App\SmartAlbums\StarredAlbum;
@@ -24,6 +25,7 @@ class AlbumFactory
 		StarredAlbum::ID => StarredAlbum::class,
 		PublicAlbum::ID => PublicAlbum::class,
 		RecentAlbum::ID => RecentAlbum::class,
+		OnThisDayAlbum::ID => OnThisDayAlbum::class,
 	];
 
 	/**
@@ -153,6 +155,7 @@ class AlbumFactory
 			$albumQuery->with(['photos', 'children', 'photos.size_variants']);
 		}
 
+		/** @var Collection<int,BaseAlbum> $result */
 		$result = new Collection(array_merge(
 			$tagAlbumQuery->findMany($albumIDs)->all(),
 			$albumQuery->findMany($albumIDs)->all(),

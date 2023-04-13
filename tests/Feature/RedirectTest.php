@@ -12,9 +12,9 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
+use Tests\AbstractTestCase;
 
-class RedirectTest extends TestCase
+class RedirectTest extends AbstractTestCase
 {
 	/**
 	 * A basic feature test example.
@@ -25,12 +25,12 @@ class RedirectTest extends TestCase
 	{
 		$response = $this->get('r/aaaaaaaaaaaaaaaaaaaaaaaa');
 
-		$response->assertStatus(302);
+		$this->assertStatus($response, 302);
 		$response->assertRedirect('gallery#aaaaaaaaaaaaaaaaaaaaaaaa');
 
 		$response = $this->get('r/aaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbb');
 
-		$response->assertStatus(302);
+		$this->assertStatus($response, 302);
 		$response->assertRedirect('gallery#aaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbb');
 	}
 }

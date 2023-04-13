@@ -18,6 +18,20 @@ return [
 
 	/*
 	|--------------------------------------------------------------------------
+	| Log DB SQL statements
+	|--------------------------------------------------------------------------
+	|
+	| If set to true, all SQL statements will be logged to a text file below
+	| storage.
+	| Only use it for debugging and development purposes as it slows down
+	| the performance of the application
+	|
+	*/
+
+	'db_log_sql' => (bool) env('DB_LOG_SQL', false),
+
+	/*
+	|--------------------------------------------------------------------------
 	| Database Connections
 	|--------------------------------------------------------------------------
 	|
@@ -38,7 +52,7 @@ return [
 			'url' => env('DATABASE_URL'),
 			'database' => env('DB_DATABASE', database_path('database.sqlite')),
 			'prefix' => '',
-			'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+			'foreign_key_constraints' => true,
 		],
 
 		'mysql' => [
@@ -119,7 +133,7 @@ return [
 			'timezone' => 'UTC',
 			'prefix' => '',
 			'prefix_indexes' => true,
-			'schema' => 'public',
+			'search_path' => 'public',
 			'sslmode' => 'prefer',
 		],
 
@@ -162,14 +176,16 @@ return [
 	*/
 
 	'redis' => [
-		'client' => env('REDIS_CLIENT', 'phpredis'),
+		'client' => 'phpredis',
 
 		'options' => [
 			'cluster' => env('REDIS_CLUSTER', 'redis'),
-			'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_') . '_database_'),
+			'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'Lychee'), '_') . '_database_'),
 		],
 
 		'default' => [
+			'scheme' => env('REDIS_SCHEME', 'tcp'),
+			'path' => env('REDIS_PATH', null),
 			'url' => env('REDIS_URL'),
 			'host' => env('REDIS_HOST', '127.0.0.1'),
 			'password' => env('REDIS_PASSWORD'),
@@ -178,6 +194,8 @@ return [
 		],
 
 		'cache' => [
+			'scheme' => env('REDIS_SCHEME', 'tcp'),
+			'path' => env('REDIS_PATH', null),
 			'url' => env('REDIS_URL'),
 			'host' => env('REDIS_HOST', '127.0.0.1'),
 			'password' => env('REDIS_PASSWORD', null),
@@ -185,4 +203,6 @@ return [
 			'database' => env('REDIS_CACHE_DB', '1'),
 		],
 	],
+
+	'list_foreign_keys' => env('DB_LIST_FOREIGN_KEYS', false),
 ];

@@ -2,8 +2,10 @@
 
 namespace App\Models\Extensions;
 
-use App\Contracts\AbstractAlbum;
-use App\Contracts\HasRandomID;
+use App\Constants\RandomID;
+use App\Contracts\Models\AbstractAlbum;
+use App\Contracts\Models\HasRandomID;
+use App\DTO\AlbumProtectionPolicy;
 use App\DTO\PhotoSortingCriterion;
 use App\Models\BaseAlbumImpl;
 use App\Models\User;
@@ -26,16 +28,17 @@ use Illuminate\Support\Carbon;
  * @property Carbon                     $updated_at
  * @property string|null                $description
  * @property bool                       $is_nsfw
- * @property bool                       $grants_full_photo
+ * @property bool                       $is_link_required
  * @property int                        $owner_id
  * @property User                       $owner
  * @property Collection                 $shared_with
- * @property bool                       $requires_link
  * @property string|null                $password
- * @property bool                       $has_password
+ * @property bool                       $is_password_required
  * @property Carbon|null                $min_taken_at
  * @property Carbon|null                $max_taken_at
+ * @property bool                       $is_shared_with_current_user
  * @property PhotoSortingCriterion|null $sorting
+ * @property AlbumProtectionPolicy      $policy
  * @property BaseAlbumImpl              $base_class
  */
 abstract class BaseAlbum extends Model implements AbstractAlbum, HasRandomID
@@ -48,7 +51,7 @@ abstract class BaseAlbum extends Model implements AbstractAlbum, HasRandomID
 	/**
 	 * @var string The type of the primary key
 	 */
-	protected $keyType = HasRandomID::ID_TYPE;
+	protected $keyType = RandomID::ID_TYPE;
 
 	/**
 	 * Indicates if the model's primary key is auto-incrementing.
@@ -87,11 +90,6 @@ abstract class BaseAlbum extends Model implements AbstractAlbum, HasRandomID
 	}
 
 	abstract public function photos(): Relation;
-
-	public function toArray(): array
-	{
-		return array_merge(parent::toArray(), $this->base_class->toArray());
-	}
 
 	/**
 	 * Returns the criterion acc. to which **photos** inside the album shall be sorted.

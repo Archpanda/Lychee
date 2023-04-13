@@ -2,20 +2,18 @@
 
 namespace App\Actions\Album;
 
-use App\Contracts\AbstractAlbum;
+use App\Contracts\Models\AbstractAlbum;
 use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\Handler;
 use App\Exceptions\Internal\FrameworkException;
 use App\Models\Album;
 use App\Models\Configs;
-use App\Models\Extensions\BaseAlbum;
 use App\Models\Photo;
 use App\Models\TagAlbum;
 use App\Policies\AlbumPolicy;
 use App\Policies\PhotoPolicy;
 use App\SmartAlbums\BaseSmartAlbum;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Safe\Exceptions\InfoException;
 use function Safe\ini_get;
@@ -169,7 +167,7 @@ class Archive extends Action
 	{
 		$fullNameOfParent = $fullNameOfParent ?? '';
 
-		if (!self::isArchivable($album)) {
+		if (!Gate::check(AlbumPolicy::CAN_DOWNLOAD, [AbstractAlbum::class, $album])) {
 			return;
 		}
 
@@ -235,20 +233,5 @@ class Archive extends Action
 				}
 			}
 		}
-	}
-
-	/**
-	 * Tests whether the given album may be archived by the current user.
-	 *
-	 * @param AbstractAlbum $album
-	 *
-	 * @return bool
-	 */
-	private static function isArchivable(AbstractAlbum $album): bool
-	{
-		return
-			$album->is_downloadable ||
-			($album instanceof BaseSmartAlbum && Auth::check()) ||
-			($album instanceof BaseAlbum && Gate::check(AlbumPolicy::IS_OWNER, $album));
 	}
 }

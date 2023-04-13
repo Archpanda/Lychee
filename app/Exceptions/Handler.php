@@ -2,9 +2,11 @@
 
 namespace App\Exceptions;
 
-use App\Contracts\HttpExceptionHandler;
+use App\Contracts\Exceptions\Handlers\HttpExceptionHandler;
 use App\DTO\BacktraceRecord;
+use App\Enum\SeverityType;
 use App\Exceptions\Handlers\AccessDBDenied;
+use App\Exceptions\Handlers\AdminSetterHandler;
 use App\Exceptions\Handlers\InstallationHandler;
 use App\Exceptions\Handlers\MigrationHandler;
 use App\Exceptions\Handlers\NoEncryptionKey;
@@ -70,19 +72,17 @@ class Handler extends ExceptionHandler
 	 * Maps class names of exceptions to their severity.
 	 *
 	 * By default, exceptions are logged with severity
-	 * {@link Logs::SEVERITY_ERROR} by {@link Handler::report()}.
+	 * {@link SeverityType::ERROR} by {@link Handler::report()}.
 	 * This array overwrites the default severity per exception.
 	 *
-	 * @var array<class-string, int>
-	 *
-	 * @phpstan-var array<class-string, int<0,7>>
+	 * @var array<class-string,SeverityType>
 	 */
 	public const EXCEPTION2SEVERITY = [
-		PhotoResyncedException::class => Logs::SEVERITY_WARNING,
-		PhotoSkippedException::class => Logs::SEVERITY_WARNING,
-		ImportCancelledException::class => Logs::SEVERITY_NOTICE,
-		ConfigurationException::class => Logs::SEVERITY_NOTICE,
-		LocationDecodingFailed::class => Logs::SEVERITY_WARNING,
+		PhotoResyncedException::class => SeverityType::WARNING,
+		PhotoSkippedException::class => SeverityType::WARNING,
+		ImportCancelledException::class => SeverityType::NOTICE,
+		ConfigurationException::class => SeverityType::NOTICE,
+		LocationDecodingFailed::class => SeverityType::WARNING,
 	];
 
 	/**
@@ -284,6 +284,7 @@ class Handler extends ExceptionHandler
 			new NoEncryptionKey(),
 			new AccessDBDenied(),
 			new InstallationHandler(),
+			new AdminSetterHandler(),
 			new MigrationHandler(),
 		];
 
@@ -312,22 +313,52 @@ class Handler extends ExceptionHandler
 	protected function convertExceptionToArray(\Throwable $e): array
 	{
 		try {
-			return config('app.debug') === true ? [
-				'message' => $e->getMessage(),
-				'exception' => get_class($e),
-				'file' => $e->getFile(),
-				'line' => $e->getLine(),
-				'trace' => collect($e->getTrace())->map(function ($trace) {
-					return Arr::except($trace, ['args']);
-				})->all(),
-				'previous_exception' => $e->getPrevious() !== null ? $this->convertExceptionToArray($e->getPrevious()) : null,
-			] : [
+			// debub mode.
+			if (config('app.debug') === true) {
+				return $this->convertDebugExceptionToArray($e);
+			}
+
+			// normal use
+			return [
 				'message' => $this->isHttpException($e) ? $e->getMessage() : 'Server Error',
 				'exception' => class_basename($e),
 			];
 		} catch (\Throwable) {
 			return [];
 		}
+	}
+
+	/**
+	 * Converts the given exception to an array.
+	 *
+	 * The result only includes details about the exception, if the
+	 * application is in debug mode.
+	 * Identical to
+	 * {@link \Illuminate\Foundation\Exceptions\Handler::convertExceptionToAray()}
+	 * but recursively adds the previous exceptions, too.
+	 *
+	 * @param \Throwable|null $e
+	 *
+	 * @return ($e is null ? null : array)
+	 */
+	private function convertDebugExceptionToArray(\Throwable|null $e): array|null
+	{
+		if ($e === null) {
+			return null;
+		}
+
+		$previous_exception = $this->convertDebugExceptionToArray($e->getPrevious());
+
+		return [
+			'message' => $e->getMessage(),
+			'exception' => get_class($e),
+			'file' => $e->getFile(),
+			'line' => $e->getLine(),
+			'trace' => collect($e->getTrace())->map(function ($trace) {
+				return Arr::except($trace, ['args']);
+			})->all(),
+			'previous_exception' => $previous_exception,
+		];
 	}
 
 	/**
@@ -368,15 +399,13 @@ class Handler extends ExceptionHandler
 	/**
 	 * @param \Throwable $e
 	 *
-	 * @return int
-	 *
-	 * @phpstan-return int<0,7>
+	 * @return SeverityType
 	 */
-	public static function getLogSeverity(\Throwable $e): int
+	public static function getLogSeverity(\Throwable $e): SeverityType
 	{
 		return array_key_exists(get_class($e), self::EXCEPTION2SEVERITY) ?
 			self::EXCEPTION2SEVERITY[get_class($e)] :
-			Logs::SEVERITY_ERROR;
+			SeverityType::ERROR;
 	}
 
 	/**

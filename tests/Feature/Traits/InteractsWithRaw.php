@@ -2,21 +2,21 @@
 
 namespace Tests\Feature\Traits;
 
-use App\Image\MediaFile;
+use App\Image\Files\BaseMediaFile;
 use App\Models\Configs;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
 
 trait InteractsWithRaw
 {
 	public static function getAcceptedRawFormats(): string
 	{
-		return Configs::getValueAsString(TestCase::CONFIG_RAW_FORMATS);
+		return Configs::getValueAsString(AbstractTestCase::CONFIG_RAW_FORMATS);
 	}
 
 	public static function setAcceptedRawFormats(string $acceptedRawFormats): void
 	{
-		Configs::set(TestCase::CONFIG_RAW_FORMATS, $acceptedRawFormats);
-		$reflection = new \ReflectionClass(MediaFile::class);
-		$reflection->setStaticPropertyValue('cachedAcceptedRawFileExtensions', null);
+		Configs::set(AbstractTestCase::CONFIG_RAW_FORMATS, $acceptedRawFormats);
+		$reflection = new \ReflectionClass(BaseMediaFile::class);
+		$reflection->setStaticPropertyValue('cachedAcceptedRawFileExtensions', []);
 	}
 }

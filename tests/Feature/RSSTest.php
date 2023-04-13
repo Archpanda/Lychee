@@ -15,12 +15,12 @@ namespace Tests\Feature;
 use App\Models\Configs;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
+use Tests\AbstractTestCase;
 use Tests\Feature\Lib\AlbumsUnitTest;
 use Tests\Feature\Lib\PhotosUnitTest;
 use Tests\Feature\Traits\RequiresEmptyPhotos;
-use Tests\TestCase;
 
-class RSSTest extends TestCase
+class RSSTest extends AbstractTestCase
 {
 	use RequiresEmptyPhotos;
 
@@ -54,7 +54,7 @@ class RSSTest extends TestCase
 
 			// check redirection
 			$response = $this->get('/feed');
-			$response->assertStatus(412);
+			$this->assertStatus($response, 412);
 		} finally {
 			Configs::set('rss_enable', $init_config_value);
 		}
@@ -64,27 +64,27 @@ class RSSTest extends TestCase
 	{
 		// save initial value
 		$init_config_value = Configs::getValue('rss_enable');
-		$init_full_photo = Configs::getValue('full_photo');
+		$init_full_photo = Configs::getValue('grants_full_photo_access');
 
 		try {
 			// set to 0
 			Configs::set('rss_enable', '1');
-			Configs::set('full_photo', '0');
+			Configs::set('grants_full_photo_access', '0');
 			static::assertEquals('1', Configs::getValue('rss_enable'));
 
 			// check redirection
 			$response = $this->get('/feed');
-			$response->assertOk();
+			$this->assertOk($response);
 
 			// log as admin
-			Auth::loginUsingId(0);
+			Auth::loginUsingId(1);
 
 			// create an album
 			$albumID = $this->albums_tests->add(null, 'test_album')->offsetGet('id');
 
 			// upload a picture
 			$photoID = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_NIGHT_IMAGE)
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
 			)->offsetGet('id');
 
 			// set it to public
@@ -92,7 +92,7 @@ class RSSTest extends TestCase
 
 			// try to get the RSS feed.
 			$response = $this->get('/feed');
-			$response->assertOk();
+			$this->assertOk($response);
 
 			// set picture to private
 			$this->photos_tests->set_public($photoID, false);
@@ -103,12 +103,12 @@ class RSSTest extends TestCase
 
 			// try to get the RSS feed.
 			$response = $this->get('/feed');
-			$response->assertOk();
+			$this->assertOk($response);
 
 			$this->albums_tests->delete([$albumID]);
 		} finally {
 			Configs::set('rss_enable', $init_config_value);
-			Configs::set('full_photo', $init_full_photo);
+			Configs::set('grants_full_photo_access', $init_full_photo);
 
 			Auth::logout();
 			Session::flush();

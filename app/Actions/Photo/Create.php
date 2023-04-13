@@ -9,8 +9,8 @@ use App\Actions\Photo\Strategies\AddStrategyParameters;
 use App\Actions\Photo\Strategies\AddVideoPartnerStrategy;
 use App\Actions\Photo\Strategies\ImportMode;
 use App\Actions\User\Notify;
-use App\Contracts\AbstractAlbum;
-use App\Contracts\LycheeException;
+use App\Contracts\Exceptions\LycheeException;
+use App\Contracts\Models\AbstractAlbum;
 use App\Exceptions\ExternalComponentFailedException;
 use App\Exceptions\ExternalComponentMissingException;
 use App\Exceptions\Internal\IllegalOrderOfOperationException;
@@ -18,8 +18,8 @@ use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\QueryBuilderException;
 use App\Exceptions\InvalidPropertyException;
 use App\Exceptions\MediaFileOperationException;
-use App\Image\MediaFile;
-use App\Image\NativeLocalFile;
+use App\Image\Files\BaseMediaFile;
+use App\Image\Files\NativeLocalFile;
 use App\Image\StreamStat;
 use App\Metadata\Extractor;
 use App\Models\Album;
@@ -28,16 +28,15 @@ use App\SmartAlbums\BaseSmartAlbum;
 use App\SmartAlbums\PublicAlbum;
 use App\SmartAlbums\StarredAlbum;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use function Safe\substr;
 
 class Create
 {
 	/** @var AddStrategyParameters the strategy parameters prepared and compiled by this class */
 	protected AddStrategyParameters $strategyParameters;
 
-	public function __construct(?ImportMode $importMode)
+	public function __construct(?ImportMode $importMode, int $intendedOwnerId)
 	{
-		$this->strategyParameters = new AddStrategyParameters($importMode);
+		$this->strategyParameters = new AddStrategyParameters($importMode, $intendedOwnerId);
 	}
 
 	/**
@@ -174,8 +173,8 @@ class Create
 			// different kind then the uploaded media.
 			if (
 				$livePartner !== null && !(
-					MediaFile::isSupportedImageMimeType($mimeType) && $livePartner->isVideo() ||
-					MediaFile::isSupportedVideoMimeType($mimeType) && $livePartner->isPhoto()
+					BaseMediaFile::isSupportedImageMimeType($mimeType) && $livePartner->isVideo() ||
+					BaseMediaFile::isSupportedVideoMimeType($mimeType) && $livePartner->isPhoto()
 				)
 			) {
 				$livePartner = null;

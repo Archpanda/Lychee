@@ -13,13 +13,16 @@
 namespace Tests\Feature;
 
 use App\Models\Configs;
+use App\SmartAlbums\OnThisDayAlbum;
 use App\SmartAlbums\PublicAlbum;
 use App\SmartAlbums\RecentAlbum;
 use App\SmartAlbums\StarredAlbum;
 use App\SmartAlbums\UnsortedAlbum;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Tests\AbstractTestCase;
 use Tests\Feature\Lib\AlbumsUnitTest;
 use Tests\Feature\Lib\PhotosUnitTest;
 use Tests\Feature\Lib\RootAlbumUnitTest;
@@ -29,9 +32,8 @@ use Tests\Feature\Traits\InteractWithSmartAlbums;
 use Tests\Feature\Traits\RequiresEmptyAlbums;
 use Tests\Feature\Traits\RequiresEmptyPhotos;
 use Tests\Feature\Traits\RequiresEmptyUsers;
-use Tests\TestCase;
 
-class AlbumTest extends TestCase
+class AlbumTest extends AbstractTestCase
 {
 	use InteractWithSmartAlbums;
 	use RequiresEmptyAlbums;
@@ -79,6 +81,7 @@ class AlbumTest extends TestCase
 		$this->albums_tests->get(StarredAlbum::ID, 401);
 		$this->albums_tests->get(PublicAlbum::ID, 401);
 		$this->albums_tests->get(UnsortedAlbum::ID, 401);
+		$this->albums_tests->get(OnThisDayAlbum::ID, 401);
 
 		// Ensure that we get proper 404 (not found) response for a
 		// non-existing album, not a false 403 (forbidden) response
@@ -87,13 +90,14 @@ class AlbumTest extends TestCase
 
 	public function testAddReadLogged(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$this->clearCachedSmartAlbums();
 
 		$this->albums_tests->get(RecentAlbum::ID);
 		$this->albums_tests->get(StarredAlbum::ID);
 		$this->albums_tests->get(PublicAlbum::ID);
 		$this->albums_tests->get(UnsortedAlbum::ID);
+		$this->albums_tests->get(OnThisDayAlbum::ID);
 
 		$albumID1 = $this->albums_tests->add(null, 'test_album')->offsetGet('id');
 		$albumID2 = $this->albums_tests->add(null, 'test_album2')->offsetGet('id');
@@ -127,6 +131,7 @@ class AlbumTest extends TestCase
 			'description' => null,
 			'title' => 'test_album',
 			'albums' => [['id' => $albumID2]],
+			'num_subalbums' => 1,
 		]);
 
 		$this->albums_tests->set_title($albumID1, 'NEW_TEST');
@@ -160,7 +165,7 @@ class AlbumTest extends TestCase
 		$this->albums_tests->unlock($albumID1, 'wrong-password', 403);
 		$this->albums_tests->get($albumID1, 401);
 
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		/*
 		 * Let's try to delete this album.
@@ -224,7 +229,7 @@ class AlbumTest extends TestCase
 			// tests.
 			static::assertDatabaseCount('base_albums', 0);
 
-			Auth::loginUsingId(0);
+			Auth::loginUsingId(1);
 
 			// Create the test layout
 			$albumID1 = $this->albums_tests->add(null, 'Album 1')->offsetGet('id');
@@ -321,14 +326,176 @@ class AlbumTest extends TestCase
 		}
 	}
 
+	/**
+	 * Tests that the nested-set model remains consistent for a multi-delete of a forest.
+	 *
+	 * This tests considers the following album layout (the `_lft`, `_rgt`
+	 * indices of the nested set model are illustrated):
+	 *
+	 *                             (root)
+	 *                               |
+	 *                            Album 1
+	 *                            ( 1,14)
+	 *                               |
+	 *            +------------------+------------------+
+	 *            |                  |                  |
+	 *      Sub-Album 1.1      Sub-Album 1.2      Sub-Album 1.3
+	 *          (2,5)              (6,9)             (10,13)
+	 *            |                  |                  |
+	 *     Sub-Album 1.1.1    Sub-Album 1.2.1    Sub-Album 1.3.1
+	 *          (3,4)              (7,8)             (11,12)
+	 *
+	 * We then do a merge for album 1.1 and 1.2
+	 * and expect the nested-set model to be updated like
+	 *
+	 *                             (root)
+	 *                               |
+	 *                            Album 1
+	 *                            ( 1,12)
+	 *                               |
+	 *            +------------------+------------------+
+	 *            |                                     |
+	 *      Sub-Album 1.1                         Sub-Album 1.3
+	 *          (2,7)                                (8,11)
+	 *            |                                     |
+	 *            +------------------+                  |
+	 *     Sub-Album 1.1.1    Sub-Album 1.2.1    Sub-Album 1.3.1
+	 *          (3,4)              (5,6)             (9,10)
+	 *
+	 * @return void
+	 */
+	public function testMerge(): void
+	{
+		try {
+			// In order check the (_lft,_rgt)-indices we need deterministic
+			// indices.
+			// Hence, we must ensure that there are no left-overs from previous
+			// tests.
+			static::assertDatabaseCount('base_albums', 0);
+
+			Auth::loginUsingId(1);
+
+			// Create the test layout
+			$albumID1 = $this->albums_tests->add(null, 'Album 1')->offsetGet('id');
+			$albumID11 = $this->albums_tests->add($albumID1, 'Album 1.1')->offsetGet('id');
+			$albumID12 = $this->albums_tests->add($albumID1, 'Album 1.2')->offsetGet('id');
+			$albumID13 = $this->albums_tests->add($albumID1, 'Album 1.3')->offsetGet('id');
+			$albumID111 = $this->albums_tests->add($albumID11, 'Album 1.1.1')->offsetGet('id');
+			$albumID121 = $this->albums_tests->add($albumID12, 'Album 1.2.1')->offsetGet('id');
+			$albumID131 = $this->albums_tests->add($albumID13, 'Album 1.3.1')->offsetGet('id');
+
+			// Low-level tests on the DB layer to check of nested-set IDs are as expected
+			$albumStat = DB::table('albums')
+				->get(['id', 'parent_id', '_lft', '_rgt'])
+				->map(fn ($row) => get_object_vars($row))
+				->keyBy('id')
+				->toArray();
+			static::assertEquals([
+				$albumID1 => [
+					'id' => $albumID1,
+					'parent_id' => null,
+					'_lft' => 1,
+					'_rgt' => 14,
+				],
+				$albumID11 => [
+					'id' => $albumID11,
+					'parent_id' => $albumID1,
+					'_lft' => 2,
+					'_rgt' => 5,
+				],
+				$albumID12 => [
+					'id' => $albumID12,
+					'parent_id' => $albumID1,
+					'_lft' => 6,
+					'_rgt' => 9,
+				],
+				$albumID13 => [
+					'id' => $albumID13,
+					'parent_id' => $albumID1,
+					'_lft' => 10,
+					'_rgt' => 13,
+				],
+				$albumID111 => [
+					'id' => $albumID111,
+					'parent_id' => $albumID11,
+					'_lft' => 3,
+					'_rgt' => 4,
+				],
+				$albumID121 => [
+					'id' => $albumID121,
+					'parent_id' => $albumID12,
+					'_lft' => 7,
+					'_rgt' => 8,
+				],
+				$albumID131 => [
+					'id' => $albumID131,
+					'parent_id' => $albumID13,
+					'_lft' => 11,
+					'_rgt' => 12,
+				],
+			], $albumStat);
+
+			// Now let's do the multi-delete of a sub-forest
+			$this->albums_tests->merge([$albumID12], $albumID11);
+
+			// Re-check on the lowest level
+			$albumStat = DB::table('albums')
+				->get(['id', 'parent_id', '_lft', '_rgt'])
+				->map(fn ($row) => get_object_vars($row))
+				->keyBy('id')
+				->toArray();
+			static::assertEquals([
+				$albumID1 => [
+					'id' => $albumID1,
+					'parent_id' => null,
+					'_lft' => 1,
+					'_rgt' => 12,
+				],
+				$albumID11 => [
+					'id' => $albumID11,
+					'parent_id' => $albumID1,
+					'_lft' => 2,
+					'_rgt' => 7,
+				],
+				$albumID13 => [
+					'id' => $albumID13,
+					'parent_id' => $albumID1,
+					'_lft' => 8,
+					'_rgt' => 11,
+				],
+				$albumID111 => [
+					'id' => $albumID111,
+					'parent_id' => $albumID11,
+					'_lft' => 3,
+					'_rgt' => 4,
+				],
+				$albumID121 => [
+					'id' => $albumID121,
+					'parent_id' => $albumID11,
+					'_lft' => 5,
+					'_rgt' => 6,
+				],
+				$albumID131 => [
+					'id' => $albumID131,
+					'parent_id' => $albumID13,
+					'_lft' => 9,
+					'_rgt' => 10,
+				],
+			], $albumStat);
+		} finally {
+			Auth::logout();
+			Session::flush();
+		}
+	}
+
 	public function testTrueNegative(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		$this->albums_tests->set_description('-1', 'new description', 422);
 		$this->albums_tests->set_description('abcdefghijklmnopqrstuvwx', 'new description', 404);
-		$this->albums_tests->set_protection_policy('-1', true, true, false, false, true, true, null, 422);
-		$this->albums_tests->set_protection_policy('abcdefghijklmnopqrstuvwx', true, true, false, false, true, true, null, 404);
+		$this->albums_tests->set_protection_policy(id: '-1', expectedStatusCode: 422);
+		$this->albums_tests->set_protection_policy(id: 'abcdefghijklmnopqrstuvwx', expectedStatusCode: 404);
 
 		Auth::logout();
 		Session::flush();
@@ -340,7 +507,7 @@ class AlbumTest extends TestCase
 		$albumSortingOrder = Configs::getValueAsString(self::CONFIG_ALBUMS_SORTING_ORDER);
 
 		try {
-			Auth::loginUsingId(0);
+			Auth::loginUsingId(1);
 			Configs::set(self::CONFIG_ALBUMS_SORTING_COL, 'title');
 			Configs::set(self::CONFIG_ALBUMS_SORTING_ORDER, 'ASC');
 
@@ -393,7 +560,7 @@ class AlbumTest extends TestCase
 
 	public function testAddAlbumByNonAdminUserWithoutUploadPrivilege(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID = $this->users_tests->add('Test user', 'Test password', false)->offsetGet('id');
 		Auth::logout();
 		Session::flush();
@@ -403,7 +570,7 @@ class AlbumTest extends TestCase
 
 	public function testAddAlbumByNonAdminUserWithUploadPrivilege(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID = $this->users_tests->add('Test user', 'Test password')->offsetGet('id');
 		Auth::logout();
 		Session::flush();
@@ -413,7 +580,7 @@ class AlbumTest extends TestCase
 
 	public function testEditAlbumByNonOwner(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID1 = $this->users_tests->add('Test user 1', 'Test password 1')->offsetGet('id');
 		$userID2 = $this->users_tests->add('Test user 2', 'Test password 2')->offsetGet('id');
 		Auth::logout();
@@ -429,18 +596,39 @@ class AlbumTest extends TestCase
 
 	public function testEditAlbumByOwner(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID = $this->users_tests->add('Test user', 'Test password 1')->offsetGet('id');
 		Auth::logout();
 		Session::flush();
 		Auth::loginUsingId($userID);
 		$albumID = $this->albums_tests->add(null, 'Test Album')->offsetGet('id');
 		$this->albums_tests->set_title($albumID, 'New title for test album');
+		// Set password
+		$this->albums_tests->set_protection_policy(id: $albumID,
+			grants_full_photo_access: false,
+			is_public: true,
+			is_link_required: false,
+			is_nsfw: false,
+			grants_downloadable: true,
+			password: 'PASSWORD');
+		Auth::logout();
+		Session::flush();
+
+		// check password is required
+		$this->albums_tests->get($albumID, 401);
+
+		// We remove the password if it was set
+		Auth::loginUsingId($userID);
+		$this->albums_tests->set_protection_policy(id: $albumID, password: '');
+
+		Auth::logout();
+		Session::flush();
+		$this->albums_tests->get($albumID);
 	}
 
 	public function testDeleteMultipleAlbumsByAnonUser(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$albumID1 = $this->albums_tests->add(null, 'Test Album 1')->offsetGet('id');
 		$albumID2 = $this->albums_tests->add(null, 'Test Album 2')->offsetGet('id');
 		Auth::logout();
@@ -450,7 +638,7 @@ class AlbumTest extends TestCase
 
 	public function testDeleteMultipleAlbumsByNonAdminUserWithoutUploadPrivilege(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$albumID1 = $this->albums_tests->add(null, 'Test Album 1')->offsetGet('id');
 		$albumID2 = $this->albums_tests->add(null, 'Test Album 2')->offsetGet('id');
 		$userID = $this->users_tests->add('Test user', 'Test password', false)->offsetGet('id');
@@ -463,7 +651,7 @@ class AlbumTest extends TestCase
 
 	public function testDeleteMultipleAlbumsByNonOwner(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID1 = $this->users_tests->add('Test user 1', 'Test password 1')->offsetGet('id');
 		$userID2 = $this->users_tests->add('Test user 2', 'Test password 2')->offsetGet('id');
 		Auth::logout();
@@ -480,7 +668,7 @@ class AlbumTest extends TestCase
 
 	public function testDeleteMultipleAlbumsByOwner(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID = $this->users_tests->add('Test user 1', 'Test password 1')->offsetGet('id');
 		Auth::logout();
 		Session::flush();
@@ -508,7 +696,7 @@ class AlbumTest extends TestCase
 	 */
 	public function testDeleteNonEmptyTagAlbumWithPhotosFromRegularAlbum(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$regularAlbumID = $this->albums_tests->add(null, 'Regular Album for Delete Test')->offsetGet('id');
 		$photoID = $this->photos_tests->upload(
 			self::createUploadedFile(self::SAMPLE_FILE_MONGOLIA_IMAGE), $regularAlbumID
@@ -525,5 +713,198 @@ class AlbumTest extends TestCase
 		// Ensure that the regular album and the photo are still there
 		$this->albums_tests->get($regularAlbumID);
 		$this->photos_tests->get($photoID);
+	}
+
+	/**
+	 * Creates an extra User.
+	 * Creates a (regular) album, put a photo in it.
+	 * Log are extra user, and try to set the cover of the album, expect to fail.
+	 *
+	 * @return void
+	 */
+	public function testSetCoverByNonOwner()
+	{
+		Auth::loginUsingId(1);
+		$userID = $this->users_tests->add('Test user', 'Test password 1')->offsetGet('id');
+		$albumID = $this->albums_tests->add(null, 'Test Album')->offsetGet('id');
+		$photoID1 = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE),
+			$albumID
+		)->offsetGet('id');
+		Auth::logout();
+		Session::flush();
+
+		Auth::loginUsingId($userID);
+		$this->albums_tests->set_cover($albumID, $photoID1, 403);
+	}
+
+	/**
+	 * Creates a (regular) album, put 2 photos in it.
+	 * Get original cover_id.
+	 * Set cover of album to photo 1, check that cover_id is photo1.
+	 * Set cover of album to photo 2, check that cover_id is photo2.
+	 * Unset cover of album, check that cover_id is back to original.
+	 *
+	 * @return void
+	 */
+	public function testSetCoverByOwner()
+	{
+		Auth::loginUsingId(1);
+		$albumID = $this->albums_tests->add(null, 'Test Album')->offsetGet('id');
+		$photoID1 = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE),
+			$albumID
+		)->offsetGet('id');
+		$photoID2 = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_HOCHUFERWEG),
+			$albumID
+		)->offsetGet('id');
+		$initialCoverID = $this->albums_tests->get($albumID)->offsetGet('cover_id');
+
+		$this->albums_tests->set_cover($albumID, $photoID1);
+		$coverID = $this->albums_tests->get($albumID)->offsetGet('cover_id');
+		$this->assertEquals($photoID1, $coverID);
+
+		$this->albums_tests->set_cover($albumID, $photoID2);
+		$coverID = $this->albums_tests->get($albumID)->offsetGet('cover_id');
+		$this->assertEquals($photoID2, $coverID);
+
+		$this->albums_tests->set_cover($albumID, null);
+		$coverID = $this->albums_tests->get($albumID)->offsetGet('cover_id');
+		$this->assertEquals($initialCoverID, $coverID);
+
+		Auth::logout();
+		Session::flush();
+	}
+
+	/**
+	 * Check that deleting in Unsorted results in removing Unsorted pictures.
+	 *
+	 * @return void
+	 */
+	public function testDeleteUnsorted(): void
+	{
+		Auth::loginUsingId(1);
+		$id = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
+		)->offsetGet('id');
+
+		$this->photos_tests->get($id);
+
+		$this->clearCachedSmartAlbums();
+		$this->albums_tests->get(UnsortedAlbum::ID, 200, $id);
+		$this->albums_tests->delete([UnsortedAlbum::ID], 204);
+		$this->clearCachedSmartAlbums();
+		$this->albums_tests->get(UnsortedAlbum::ID, 200, null, $id);
+		$this->photos_tests->get($id, 404);
+
+		Auth::logout();
+		Session::flush();
+	}
+
+	public function testHiddenSmartAlbums(): void
+	{
+		Auth::loginUsingId(1);
+
+		$this->clearCachedSmartAlbums();
+		Configs::set('SA_enabled', true);
+		$response = $this->postJson('/api/Albums::get');
+		$this->assertOk($response);
+		$response->assertJson([
+			'smart_albums' => [
+				'unsorted' => [],
+				'starred' => [],
+				'public' => [],
+				'recent' => [],
+				'on_this_day' => [],
+			],
+			'tag_albums' => [],
+			'albums' => [],
+			'shared_albums' => [],
+		]);
+
+		$this->clearCachedSmartAlbums();
+		Configs::set('SA_enabled', false);
+		$response = $this->postJson('/api/Albums::get');
+		$this->assertOk($response);
+		$response->assertJson([
+			'smart_albums' => [],
+			'tag_albums' => [],
+			'albums' => [],
+			'shared_albums' => [],
+		]);
+		$response->assertDontSee('unsorted');
+		$response->assertDontSee('starred');
+		$response->assertDontSee('public');
+		$response->assertDontSee('recent');
+
+		Configs::set('SA_enabled', true);
+		Auth::logout();
+		Session::flush();
+	}
+
+	public function testOnThisDayAlbumWhenThereIsPhotoTakenAtCurrentMonthAndDay(): void
+	{
+		Auth::loginUsingId(1);
+		$today = CarbonImmutable::today();
+		$photoID = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
+		)->offsetGet('id');
+
+		DB::table('photos')
+			->where('id', '=', $photoID)
+			->update([
+				'taken_at' => $today->subYear()->format('Y-m-d H:i:s.u'),
+				'created_at' => $today->subDay()->format('Y-m-d H:i:s.u'),
+			]);
+
+		$response = $this->albums_tests->get(OnThisDayAlbum::ID, 200, 'photos');
+		$response->assertSee($photoID);
+
+		$this->clearCachedSmartAlbums();
+		Auth::logout();
+	}
+
+	public function testOnThisDayAlbumWhenThereIsPhotoCreatedAtCurrentMonthAndDay(): void
+	{
+		Auth::loginUsingId(1);
+		$today = CarbonImmutable::today();
+		$photoID = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
+		)->offsetGet('id');
+
+		DB::table('photos')
+			->where('id', '=', $photoID)
+			->update([
+				'taken_at' => null,
+				'created_at' => $today->subYear()->format('Y-m-d H:i:s.u'),
+			]);
+		$response = $this->albums_tests->get(OnThisDayAlbum::ID, 200, 'photos');
+		$response->assertSee($photoID);
+
+		$this->clearCachedSmartAlbums();
+		Auth::logout();
+	}
+
+	public function testOnThisDayAlbumWhenIsEmpty(): void
+	{
+		Auth::loginUsingId(1);
+		$today = CarbonImmutable::today();
+		$photoID = $this->photos_tests->upload(
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
+		)->offsetGet('id');
+
+		DB::table('photos')
+			->where('id', '=', $photoID)
+			->update([
+				'taken_at' => null,
+				'created_at' => $today->subDay()->format('Y-m-d H:i:s.u'),
+			]);
+
+		$response = $this->albums_tests->get(OnThisDayAlbum::ID, 200, 'photos');
+		$response->assertDontSee($photoID);
+
+		$this->clearCachedSmartAlbums();
+		Auth::logout();
 	}
 }

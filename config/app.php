@@ -1,5 +1,8 @@
 <?php
 
+use Illuminate\Support\Facades\Facade;
+use function Safe\scandir;
+
 return [
 	/*
 	|--------------------------------------------------------------------------
@@ -27,17 +30,6 @@ return [
 
 	'env' => env('APP_ENV', 'production'),
 
-	/*
-	|--------------------------------------------------------------------------
-	| Application Environment
-	|--------------------------------------------------------------------------
-	|
-	| This value determines whether livewire front-end is enabled as it is
-	| currently under development.
-	|
-	*/
-
-	'livewire' => (bool) env('LIVEWIRE_ENABLED', false),
 
 	/*
 	|--------------------------------------------------------------------------
@@ -65,7 +57,19 @@ return [
 
 	'url' => env('APP_URL', 'http://localhost'),
 
-	'asset_url' => env('ASSET_URL'),
+	'asset_url' => null,
+
+	/*
+	|--------------------------------------------------------------------------
+	| Application URL
+	|--------------------------------------------------------------------------
+	|
+	| When running behind a proxy, it may be necessary for the urls to be
+	| set as https for the reverse translation. You should set this if you
+	| want to force the https scheme.
+	*/
+
+	'force_https' => (bool) env('APP_FORCE_HTTPS', false),
 
 	/*
 	|--------------------------------------------------------------------------
@@ -108,17 +112,37 @@ return [
 
 	/*
 	|--------------------------------------------------------------------------
-	| Log DB SQL statements
+	| Application Avilable Locale
 	|--------------------------------------------------------------------------
 	|
-	| If set to true, all SQL statements will be logged to a text file below
-	| storage.
-	| Only use it for debugging and development purposes as it slows down
-	| the performance of the application
+	| List of locale supported by Lychee.
+	| ['cz', 'de', 'el', 'en', 'es', 'fr', 'it', 'nl', 'no', 'pl', 'pt', 'ru', 'sk', 'sv', 'vi', 'zh_CN', 'zh_TW']
+	*/
+
+	'supported_locale' => array_diff(scandir(base_path('lang')), ['..', '.']),
+
+	/*
+	|--------------------------------------------------------------------------
+	| Faker Locale
+	|--------------------------------------------------------------------------
+	|
+	| This locale will be used by the Faker PHP library when generating fake
+	| data for your database seeds. For example, this will be used to get
+	| localized telephone numbers, street address information and more.
 	|
 	*/
 
-	'db_log_sql' => (bool) env('DB_LOG_SQL', false),
+	'faker_locale' => 'en_US',
+
+	/*
+	|--------------------------------------------------------------------------
+	| Skip diagnostics checks
+	|--------------------------------------------------------------------------
+	|
+	| Allows to define class names of diagnostics checks that will be skipped.
+	|
+	*/
+	'skip_diagnostics_checks' => explode(',', env('SKIP_DIAGNOSTICS_CHECKS', '')),
 
 	/*
 	|--------------------------------------------------------------------------
@@ -134,6 +158,24 @@ return [
 	'key' => env('APP_KEY'),
 
 	'cipher' => env('APP_CIPHER', 'AES-256-CBC'),
+
+	/*
+	|--------------------------------------------------------------------------
+	| Maintenance Mode Driver
+	|--------------------------------------------------------------------------
+	|
+	| These configuration options determine the driver used to determine and
+	| manage Laravel's "maintenance mode" status. The "cache" driver will
+	| allow maintenance mode to be controlled across multiple machines.
+	|
+	| Supported drivers: "file", "cache"
+	|
+	*/
+
+	'maintenance' => [
+		'driver' => 'file',
+		// 'store'  => 'redis',
+	],
 
 	/*
 	|--------------------------------------------------------------------------
@@ -201,45 +243,8 @@ return [
 	|
 	*/
 
-	'aliases' => [
-		'App' => Illuminate\Support\Facades\App::class,
-		'Arr' => Illuminate\Support\Arr::class,
-		'Artisan' => Illuminate\Support\Facades\Artisan::class,
-		'Auth' => Illuminate\Support\Facades\Auth::class,
-		'Blade' => Illuminate\Support\Facades\Blade::class,
-		'Broadcast' => Illuminate\Support\Facades\Broadcast::class,
-		'Bus' => Illuminate\Support\Facades\Bus::class,
-		'Cache' => Illuminate\Support\Facades\Cache::class,
-		'Config' => Illuminate\Support\Facades\Config::class,
-		'Cookie' => Illuminate\Support\Facades\Cookie::class,
-		'Crypt' => Illuminate\Support\Facades\Crypt::class,
-		'DB' => Illuminate\Support\Facades\DB::class,
+	'aliases' => Facade::defaultAliases()->merge([
 		'DebugBar' => Barryvdh\Debugbar\Facades\Debugbar::class,
-		'Eloquent' => Illuminate\Database\Eloquent\Model::class,
-		'Event' => Illuminate\Support\Facades\Event::class,
-		'File' => Illuminate\Support\Facades\File::class,
-		'Gate' => Illuminate\Support\Facades\Gate::class,
-		'Hash' => Illuminate\Support\Facades\Hash::class,
-		'Http' => Illuminate\Support\Facades\Http::class,
-		// 'Lang' => Illuminate\Support\Facades\Lang::class,
 		'Helpers' => App\Facades\Helpers::class,
-		'Lang' => App\Facades\Lang::class,
-		'Log' => Illuminate\Support\Facades\Log::class,
-		'Mail' => Illuminate\Support\Facades\Mail::class,
-		'Notification' => Illuminate\Support\Facades\Notification::class,
-		// 'Password' => Illuminate\Support\Facades\Password::class,
-		'Queue' => Illuminate\Support\Facades\Queue::class,
-		'Redirect' => Illuminate\Support\Facades\Redirect::class,
-		'Redis' => Illuminate\Support\Facades\Redis::class,
-		'Request' => Illuminate\Support\Facades\Request::class,
-		'Response' => Illuminate\Support\Facades\Response::class,
-		'Route' => Illuminate\Support\Facades\Route::class,
-		'Schema' => Illuminate\Support\Facades\Schema::class,
-		'Session' => Illuminate\Support\Facades\Session::class,
-		'Storage' => Illuminate\Support\Facades\Storage::class,
-		'Str' => Illuminate\Support\Str::class,
-		'URL' => Illuminate\Support\Facades\URL::class,
-		'Validator' => Illuminate\Support\Facades\Validator::class,
-		'View' => Illuminate\Support\Facades\View::class,
-	],
+	])->toArray(),
 ];

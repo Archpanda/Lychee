@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Install;
 
-use App\Actions\Install\DefaultConfig;
-use App\Actions\Install\RequirementsChecker;
+use App\Actions\InstallUpdate\DefaultConfig;
+use App\Actions\InstallUpdate\RequirementsChecker;
 use App\Exceptions\Internal\FrameworkException;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Contracts\View\View;
@@ -11,8 +11,8 @@ use Illuminate\Routing\Controller;
 
 final class RequirementsController extends Controller
 {
-	protected RequirementsChecker $requirements;
-	protected DefaultConfig $config;
+	private RequirementsChecker $requirements;
+	private DefaultConfig $config;
 
 	/**
 	 * @param RequirementsChecker $checker

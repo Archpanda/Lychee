@@ -2,7 +2,7 @@
 
 namespace App\Policies;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\Exceptions\Internal\InvalidQueryModelException;
 use App\Exceptions\Internal\LycheeInvalidArgumentException;
 use App\Exceptions\Internal\QueryBuilderException;
@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as BaseBuilder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
 
 /**
  * Class AlbumQueryPolicy.
@@ -43,7 +42,7 @@ class AlbumQueryPolicy
 	 *
 	 *  - the user is an admin
 	 *  - the user is the owner of the album
-	 *  - the album is shared with the user and the album does not require a direct link
+	 *  - the album is shared with the user
 	 *  - the album is public and the album does not require a direct link
 	 *
 	 * @param AlbumBuilder|TagAlbumBuilder $query
@@ -56,7 +55,7 @@ class AlbumQueryPolicy
 	{
 		$this->prepareModelQueryOrFail($query);
 
-		if (Gate::check(UserPolicy::IS_ADMIN)) {
+		if (Auth::user()?->may_administrate === true) {
 			return $query;
 		}
 
@@ -71,17 +70,13 @@ class AlbumQueryPolicy
 			$query2
 				->where(
 					fn (AlbumBuilder|TagAlbumBuilder $q) => $q
-						->where('base_albums.requires_link', '=', false)
+						->where('base_albums.is_link_required', '=', false)
 						->where('base_albums.is_public', '=', true)
 				);
 			if ($userID !== null) {
 				$query2
 					->orWhere('base_albums.owner_id', '=', $userID)
-					->orWhere(
-						fn (AlbumBuilder|TagAlbumBuilder $q) => $q
-							->where('base_albums.requires_link', '=', false)
-							->where('user_base_album.user_id', '=', $userID)
-					);
+					->orWhere('user_base_album.user_id', '=', $userID);
 			}
 		};
 
@@ -153,7 +148,7 @@ class AlbumQueryPolicy
 	 *
 	 *  - the user is the admin, or
 	 *  - the user is the owner, or
-	 *  - the album does not require a direct link and is shared with the user, or
+	 *  - the album is shared with the user, or
 	 *  - the album does not require a direct link, is public and has no password set, or
 	 *  - the album does not require a direct link, is public and has been unlocked
 	 *
@@ -168,7 +163,7 @@ class AlbumQueryPolicy
 	{
 		$this->prepareModelQueryOrFail($query);
 
-		if (Gate::check(UserPolicy::IS_ADMIN)) {
+		if (Auth::user()?->may_administrate === true) {
 			return $query;
 		}
 
@@ -184,24 +179,20 @@ class AlbumQueryPolicy
 			$query2
 				->where(
 					fn (Builder $q) => $q
-						->where('base_albums.requires_link', '=', false)
+						->where('base_albums.is_link_required', '=', false)
 						->where('base_albums.is_public', '=', true)
 						->whereNull('base_albums.password')
 				)
 				->orWhere(
 					fn (Builder $q) => $q
-						->where('base_albums.requires_link', '=', false)
+						->where('base_albums.is_link_required', '=', false)
 						->where('base_albums.is_public', '=', true)
 						->whereIn('base_albums.id', $unlockedAlbumIDs)
 				);
 			if ($userID !== null) {
 				$query2
 					->orWhere('base_albums.owner_id', '=', $userID)
-					->orWhere(
-						fn (Builder $q) => $q
-							->where('base_albums.requires_link', '=', false)
-							->where('user_base_album.user_id', '=', $userID)
-					);
+					->orWhere('user_base_album.user_id', '=', $userID);
 			}
 		};
 
@@ -257,7 +248,7 @@ class AlbumQueryPolicy
 			throw new LycheeInvalidArgumentException('the given query does not query for albums');
 		}
 
-		if (Gate::check(UserPolicy::IS_ADMIN)) {
+		if (Auth::user()?->may_administrate === true) {
 			return $query;
 		}
 
@@ -342,28 +333,24 @@ class AlbumQueryPolicy
 			$builder
 				->where(
 					fn (BaseBuilder $q) => $q
-						->where('inner_base_albums.requires_link', '=', true)
+						->where('inner_base_albums.is_link_required', '=', true)
 						->orWhere('inner_base_albums.is_public', '=', false)
 						->orWhereNotNull('inner_base_albums.password')
 				)
 				->where(
 					fn (BaseBuilder $q) => $q
-						->where('inner_base_albums.requires_link', '=', true)
+						->where('inner_base_albums.is_link_required', '=', true)
 						->orWhere('inner_base_albums.is_public', '=', false)
 						->orWhereNotIn('inner_base_albums.id', $unlockedAlbumIDs)
 				);
 			if ($userID !== null) {
 				$builder
 					->where('inner_base_albums.owner_id', '<>', $userID)
-					->where(
+					->whereNotExists(
 						fn (BaseBuilder $q) => $q
-							->where('inner_base_albums.requires_link', '=', true)
-							->orWhereNotExists(
-								fn (BaseBuilder $q2) => $q2
-									->from('user_base_album', 'user_inner_base_album')
-									->whereColumn('user_inner_base_album.base_album_id', '=', 'inner_base_albums.id')
-									->where('user_inner_base_album.user_id', '=', $userID)
-							)
+							->from('user_base_album', 'user_inner_base_album')
+							->whereColumn('user_inner_base_album.base_album_id', '=', 'inner_base_albums.id')
+							->where('user_inner_base_album.user_id', '=', $userID)
 					);
 			}
 

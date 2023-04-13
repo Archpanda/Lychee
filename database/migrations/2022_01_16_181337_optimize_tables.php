@@ -6,8 +6,7 @@ use Illuminate\Support\Facades\Schema;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\ConsoleSectionOutput;
 
-class OptimizeTables extends Migration
-{
+return new class() extends Migration {
 	private ConsoleOutput $output;
 	private ConsoleSectionOutput $msgSection;
 
@@ -29,23 +28,22 @@ class OptimizeTables extends Migration
 
 		$driverName = $connection->getDriverName();
 
-		switch ($driverName) {
-			case 'mysql':
-				$this->msgSection->writeln('<info>Info:</info> MySql/MariaDB detected.');
-				$sql = 'ANALYZE TABLE ';
-				break;
-			case 'pgsql':
-				$this->msgSection->writeln('<info>Info:</info> PostgreSQL detected.');
-				$sql = 'ANALYZE ';
-				break;
-			case 'sqlite':
-				$this->msgSection->writeln('<info>Info:</info> SQLite detected.');
-				$sql = 'ANALYZE ';
-				break;
-			default:
-				$this->msgSection->writeln('<comment>Warning:</comment> Unknown DBMS; doing nothing.');
+		match ($driverName) {
+			'mysql' => $this->msgSection->writeln('<info>Info:</info> MySql/MariaDB detected.'),
+			'pgsql' => $this->msgSection->writeln('<info>Info:</info> PostgreSQL detected.'),
+			'sqlite' => $this->msgSection->writeln('<info>Info:</info> SQLite detected.'),
+			default => $this->msgSection->writeln('<comment>Warning:</comment> Unknown DBMS; doing nothing.'),
+		};
 
-				return;
+		$sql = match ($driverName) {
+			'mysql' => 'ANALYZE TABLE ',
+			'pgsql' => 'ANALYZE ',
+			'sqlite' => 'ANALYZE ',
+			default => 'NOTHING',
+		};
+
+		if ($sql === 'NOTHING') {
+			return;
 		}
 
 		foreach ($tables as $table) {
@@ -68,4 +66,4 @@ class OptimizeTables extends Migration
 	{
 		// Nothing do to here.
 	}
-}
+};

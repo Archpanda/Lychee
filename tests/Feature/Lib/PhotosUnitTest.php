@@ -12,17 +12,19 @@
 
 namespace Tests\Feature\Lib;
 
-use App\Actions\Photo\Archive;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Traits\CatchFailures;
 
 class PhotosUnitTest
 {
-	private TestCase $testCase;
+	use CatchFailures;
 
-	public function __construct(TestCase $testCase)
+	private AbstractTestCase $testCase;
+
+	public function __construct(AbstractTestCase $testCase)
 	{
 		$this->testCase = $testCase;
 	}
@@ -51,8 +53,8 @@ class PhotosUnitTest
 			]
 		);
 
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -114,8 +116,8 @@ class PhotosUnitTest
 		$response = $this->testCase->postJson('/api/Photo::get', [
 			'photoID' => $photo_id,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -143,8 +145,8 @@ class PhotosUnitTest
 			'title' => $title,
 			'photoIDs' => [$id],
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -169,8 +171,8 @@ class PhotosUnitTest
 				'photoID' => $id,
 			]
 		);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -193,8 +195,8 @@ class PhotosUnitTest
 			'photoIDs' => $ids,
 			'is_starred' => $isStarred,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -204,21 +206,24 @@ class PhotosUnitTest
 	 *
 	 * @param string[]    $ids
 	 * @param string[]    $tags
+	 * @param bool        $override
 	 * @param int         $expectedStatusCode
 	 * @param string|null $assertSee
 	 */
 	public function set_tag(
 		array $ids,
 		array $tags,
+		bool $override = true,
 		int $expectedStatusCode = 204,
 		?string $assertSee = null
 	): void {
 		$response = $this->testCase->postJson('/api/Photo::setTags', [
 			'photoIDs' => $ids,
 			'tags' => $tags,
+			'shall_override' => $override,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -243,8 +248,8 @@ class PhotosUnitTest
 				'is_public' => $isPublic,
 			]
 		);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -269,8 +274,34 @@ class PhotosUnitTest
 				'license' => $license,
 			]
 		);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
+			$response->assertSee($assertSee, false);
+		}
+	}
+
+	/**
+	 * Set upload date.
+	 *
+	 * @param string      $id
+	 * @param string      $date
+	 * @param int         $expectedStatusCode
+	 * @param string|null $assertSee
+	 */
+	public function set_upload_date(
+		string $id,
+		string $date,
+		int $expectedStatusCode = 204,
+		?string $assertSee = null
+	): void {
+		$response = $this->testCase->postJson(
+			'/api/Photo::setUploadDate', [
+				'photoID' => $id,
+				'date' => $date,
+			]
+		);
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -295,8 +326,8 @@ class PhotosUnitTest
 				'albumID' => $album_id,
 			]
 		);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -321,8 +352,8 @@ class PhotosUnitTest
 			'photoIDs' => $ids,
 			'albumID' => $targetAlbumID,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -339,7 +370,7 @@ class PhotosUnitTest
 	 */
 	public function download(
 		array $ids,
-		string $kind = Archive::FULL,
+		string $kind,
 		int $expectedStatusCode = 200
 	): TestResponse {
 		$response = $this->testCase->getWithParameters(
@@ -350,8 +381,8 @@ class PhotosUnitTest
 				'Accept' => '*/*',
 			]
 		);
-		$response->assertStatus($expectedStatusCode);
-		if ($response->baseResponse instanceof StreamedResponse) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($response->baseResponse instanceof StreamedResponse) { // @phpstan-ignore-line
 			// The content of a streamed response is not generated unless
 			// the content is fetched.
 			// This ensures that the generator of SUT is actually executed.
@@ -376,8 +407,8 @@ class PhotosUnitTest
 		$response = $this->testCase->postJson('/api/Photo::delete', [
 			'photoIDs' => $ids,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 	}
@@ -432,8 +463,8 @@ class PhotosUnitTest
 			$requestParams
 		);
 
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -462,8 +493,8 @@ class PhotosUnitTest
 				'urls' => $urls,
 			]);
 
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -474,7 +505,7 @@ class PhotosUnitTest
 	 * Rotate a picture.
 	 *
 	 * @param string      $id
-	 * @param string      $direction
+	 * @param int         $direction
 	 * @param int         $expectedStatusCode
 	 * @param string|null $assertSee
 	 *
@@ -482,7 +513,7 @@ class PhotosUnitTest
 	 */
 	public function rotate(
 		string $id,
-		string $direction,
+		int $direction,
 		int $expectedStatusCode = 200,
 		?string $assertSee = null
 	): TestResponse {
@@ -490,8 +521,8 @@ class PhotosUnitTest
 			'photoID' => $id,
 			'direction' => $direction,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 

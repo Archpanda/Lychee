@@ -13,21 +13,23 @@
 namespace Tests\Feature;
 
 use App\Models\Configs;
+use App\SmartAlbums\OnThisDayAlbum;
 use App\SmartAlbums\RecentAlbum;
 use App\SmartAlbums\StarredAlbum;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Base\BaseSharingWithAnonUser;
 
-class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
+class SharingWithAnonUserAndPublicSearchTest extends BaseSharingWithAnonUser
 {
 	public function setUp(): void
 	{
 		parent::setUp();
-		Configs::set(TestCase::CONFIG_PUBLIC_HIDDEN, false);
+		Configs::set(AbstractTestCase::CONFIG_PUBLIC_HIDDEN, false);
 	}
 
 	/**
 	 * Ensures that the user sees the unsorted public photos as the
-	 * cover and inside "Recent" and "Favorites" (as public search is
+	 * cover and inside "Recent", "On This Day" and "Favorites" (as public search is
 	 * enabled), but not the other photo.
 	 * The user can access the public photo, but gets
 	 * "401 - Unauthenticated" for the other.
@@ -41,10 +43,13 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 	{
 		$this->prepareUnsortedPublicAndPrivatePhoto();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1, $this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
-			null, $this->photoID1, null, $this->photoID1
+			null, $this->photoID1, null, $this->photoID1, $this->photoID1
 		));
+		$responseForRoot->assertJsonMissing($this->generateUnexpectedRootJson(null, $this->photoID1, null, $this->photoID1));
 		$responseForRoot->assertJsonMissing(['id' => $this->photoID2]);
 
 		$responseForRecent = $this->albums_tests->get(RecentAlbum::ID);
@@ -64,6 +69,15 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 			]
 		));
 		$responseForStarred->assertJsonMissing(['id' => $this->photoID2]);
+
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson($this->generateExpectedSmartAlbumJson(
+			true,
+			$this->photoID1, [
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, null),
+			]
+		));
+		$responseForOnThisDay->assertJsonMissing(['id' => $this->photoID2]);
 
 		$this->photos_tests->get($this->photoID1);
 		$this->photos_tests->get($this->photoID2, $this->getExpectedInaccessibleHttpStatusCode());
@@ -82,10 +96,13 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 	{
 		$this->preparePublicAndPrivatePhotoInPrivateAlbum();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1, $this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
-			null, $this->photoID1, null, $this->photoID1
+			null, $this->photoID1, null, $this->photoID1, $this->photoID1
 		));
+		$responseForRoot->assertJsonMissing($this->generateUnexpectedRootJson(null, $this->photoID1, null, $this->photoID1));
 		$responseForRoot->assertJsonMissing(['id' => $this->photoID2]);
 
 		$responseForRecent = $this->albums_tests->get(RecentAlbum::ID);
@@ -106,6 +123,15 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 		));
 		$responseForStarred->assertJsonMissing(['id' => $this->photoID2]);
 
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson($this->generateExpectedSmartAlbumJson(
+			true,
+			$this->photoID1, [
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, $this->albumID1),
+			]
+		));
+		$responseForOnThisDay->assertJsonMissing(['id' => $this->photoID2]);
+
 		$responseForTree = $this->root_album_tests->getTree();
 		$responseForTree->assertJson($this->generateExpectedTreeJson());
 		$responseForTree->assertJsonMissing(['id' => $this->albumID1]);
@@ -121,10 +147,13 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 	{
 		$this->preparePublicUnsortedPhotoAndPhotoInSharedAlbum();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1, $this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
-			null, $this->photoID1, null, $this->photoID1
+			null, $this->photoID1, null, $this->photoID1, $this->photoID1
 		));
+		$responseForRoot->assertJsonMissing($this->generateUnexpectedRootJson(null, $this->photoID1, null, $this->photoID1));
 		$responseForRoot->assertJsonMissing(['id' => $this->albumID1]);
 		$responseForRoot->assertJsonMissing(['id' => $this->photoID2]);
 
@@ -145,6 +174,15 @@ class SharingWithAnonUserAndPublicSearchTest extends SharingWithAnonUserAbstract
 			],
 		));
 		$responseForStarred->assertJsonMissing(['id' => $this->photoID2]);
+
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson($this->generateExpectedSmartAlbumJson(
+			true,
+			$this->photoID1, [
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, null),
+			],
+		));
+		$responseForOnThisDay->assertJsonMissing(['id' => $this->photoID2]);
 
 		$responseForTree = $this->root_album_tests->getTree();
 		$responseForTree->assertJson($this->generateExpectedTreeJson());

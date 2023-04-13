@@ -13,22 +13,24 @@
 namespace Tests\Feature;
 
 use App\Models\Configs;
+use App\SmartAlbums\OnThisDayAlbum;
 use App\SmartAlbums\RecentAlbum;
 use App\SmartAlbums\StarredAlbum;
 use App\SmartAlbums\UnsortedAlbum;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Base\BaseSharingWithNonAdminUser;
 
-class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUserAbstract
+class SharingWithNonAdminUserAndPublicSearchTest extends BaseSharingWithNonAdminUser
 {
 	public function setUp(): void
 	{
 		parent::setUp();
-		Configs::set(TestCase::CONFIG_PUBLIC_HIDDEN, false);
+		Configs::set(AbstractTestCase::CONFIG_PUBLIC_HIDDEN, false);
 	}
 
 	/**
 	 * Ensures that the user sees the unsorted public photos as the
-	 * cover and inside "Recent" and "Favorites" (as public search is
+	 * cover and inside "Recent", "On This Day" and "Favorites" (as public search is
 	 * enabled), but not the other photo.
 	 * The user can access the public photo, but gets
 	 * "403 - Forbidden" for the other.
@@ -42,10 +44,18 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 	{
 		$this->prepareUnsortedPublicAndPrivatePhoto();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1, $this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
-			$this->photoID1, $this->photoID1, $this->photoID1, $this->photoID1
+			$this->photoID1, $this->photoID1, $this->photoID1, $this->photoID1, $this->photoID1
 		));
+		$arrayUnexpected = $this->generateUnexpectedRootJson(
+			$this->photoID1, $this->photoID1, $this->photoID1, $this->photoID1
+		);
+		if ($arrayUnexpected !== null) {
+			$responseForRoot->assertJsonMissing($arrayUnexpected);
+		}
 		$responseForRoot->assertJsonMissing(['id' => $this->photoID2]);
 
 		$responseForUnsorted = $this->albums_tests->get(UnsortedAlbum::ID);
@@ -78,6 +88,16 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 		$responseForStarred->assertJsonMissing(['id' => $this->photoID2]);
 		$responseForStarred->assertJsonMissing(['title' => self::PHOTO_MONGOLIA_TITLE]);
 
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson($this->generateExpectedSmartAlbumJson(
+			true,
+			$this->photoID1, [
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, null),
+			]
+		));
+		$responseForOnThisDay->assertJsonMissing(['id' => $this->photoID2]);
+		$responseForOnThisDay->assertJsonMissing(['title' => self::PHOTO_MONGOLIA_TITLE]);
+
 		$this->photos_tests->get($this->photoID1);
 		$this->photos_tests->get($this->photoID2, $this->getExpectedInaccessibleHttpStatusCode());
 	}
@@ -95,10 +115,18 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 	{
 		$this->preparePublicAndPrivatePhotoInPrivateAlbum();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1, $this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
-			null, $this->photoID1, $this->photoID1, $this->photoID1
+			null, $this->photoID1, $this->photoID1, $this->photoID1, $this->photoID1
 		));
+		$arrayUnexpected = $this->generateUnexpectedRootJson(
+			null, $this->photoID1, $this->photoID1, $this->photoID1
+		);
+		if ($arrayUnexpected !== null) {
+			$responseForRoot->assertJsonMissing($arrayUnexpected);
+		}
 		$responseForRoot->assertJsonMissing(['id' => $this->photoID2]);
 
 		$responseForRecent = $this->albums_tests->get(RecentAlbum::ID);
@@ -119,6 +147,15 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 		));
 		$responseForStarred->assertJsonMissing(['id' => $this->photoID2]);
 
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson($this->generateExpectedSmartAlbumJson(
+			true,
+			$this->photoID1, [
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, $this->albumID1),
+			]
+		));
+		$responseForOnThisDay->assertJsonMissing(['id' => $this->photoID2]);
+
 		$responseForTree = $this->root_album_tests->getTree();
 		$responseForTree->assertJson($this->generateExpectedTreeJson());
 		$responseForTree->assertJsonMissing(['id' => $this->albumID1]);
@@ -134,15 +171,25 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 	{
 		$this->preparePublicUnsortedPhotoAndPhotoInSharedAlbum();
 
+		$this->ensurePhotosWereTakenOnThisDay($this->photoID1);
+		$this->ensurePhotosWereNotTakenOnThisDay($this->photoID2);
+
 		$responseForRoot = $this->root_album_tests->get();
 		$responseForRoot->assertJson($this->generateExpectedRootJson(
 			$this->photoID1,
 			$this->photoID2,
 			$this->photoID1,
-			$this->photoID2, [
+			$this->photoID2,
+			$this->photoID1, [
 				$this->generateExpectedAlbumJson($this->albumID1, self::ALBUM_TITLE_1, null, $this->photoID2),
 			]
 		));
+		$arrayUnexpected = $this->generateUnexpectedRootJson(
+			$this->photoID1, $this->photoID2, $this->photoID1, $this->photoID2
+		);
+		if ($arrayUnexpected !== null) {
+			$responseForRoot->assertJsonMissing($arrayUnexpected);
+		}
 
 		$responseForUnsorted = $this->albums_tests->get(UnsortedAlbum::ID);
 		$responseForUnsorted->assertJson($this->generateExpectedSmartAlbumJson(
@@ -164,10 +211,19 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 
 		$responseForStarred = $this->albums_tests->get(StarredAlbum::ID);
 		$responseForStarred->assertJson([
-			'is_public' => true,
+			'policy' => ['is_public' => true],
 			'thumb' => $this->generateExpectedThumbJson($this->photoID2),
 			'photos' => [
 				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_MONGOLIA_IMAGE, $this->photoID2, $this->albumID1), // photo 2 is alphabetically first
+				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, null),
+			],
+		]);
+
+		$responseForOnThisDay = $this->albums_tests->get(OnThisDayAlbum::ID);
+		$responseForOnThisDay->assertJson([
+			'policy' => ['is_public' => true],
+			'thumb' => $this->generateExpectedThumbJson($this->photoID1),
+			'photos' => [
 				$this->generateExpectedPhotoJson(static::SAMPLE_FILE_TRAIN_IMAGE, $this->photoID1, null),
 			],
 		]);
@@ -181,7 +237,7 @@ class SharingWithNonAdminUserAndPublicSearchTest extends SharingWithNonAdminUser
 		$responseForAlbum->assertJson([
 			'id' => $this->albumID1,
 			'title' => self::ALBUM_TITLE_1,
-			'is_public' => false,
+			'policy' => ['is_public' => false],
 			'thumb' => $this->generateExpectedThumbJson($this->photoID2),
 			'photos' => [
 				$this->generateExpectedPhotoJson(self::SAMPLE_FILE_MONGOLIA_IMAGE, $this->photoID2, $this->albumID1),

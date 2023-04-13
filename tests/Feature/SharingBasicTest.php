@@ -12,7 +12,7 @@
 
 namespace Tests\Feature;
 
-class SharingBasicTest extends Base\SharingTestBase
+class SharingBasicTest extends Base\BaseSharingTest
 {
 	/**
 	 * @return void
@@ -73,10 +73,12 @@ class SharingBasicTest extends Base\SharingTestBase
 				['id' => $albumID1, 'title' => self::ALBUM_TITLE_1],
 				['id' => $albumID2, 'title' => self::ALBUM_TITLE_2],
 			],
-			'users' => [
-				['id' => $userID1, 'username' => self::USER_NAME_1],
-				['id' => $userID2, 'username' => self::USER_NAME_2],
-			],
 		]);
+
+		/** @var array $users */
+		$users = $response->offsetGet('users');
+		self::assertContains(['id' => $userID1, 'username' => self::USER_NAME_1], $users);
+		self::assertContains(['id' => $userID2, 'username' => self::USER_NAME_2], $users);
+		self::assertNotContains(['id' => 1, 'username' => 'admin'], $users);
 	}
 }

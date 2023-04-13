@@ -2,15 +2,14 @@
 
 namespace App\Relations;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\DTO\AlbumSortingCriterion;
-use App\DTO\SortingCriterion;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
 use App\Models\Album;
 use App\Models\Extensions\AlbumBuilder;
 use App\Models\Extensions\SortingDecorator;
 use App\Policies\AlbumQueryPolicy;
-use Doctrine\Instantiator\Exception\InvalidArgumentException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 
@@ -72,7 +71,7 @@ class HasManyChildAlbums extends HasManyBidirectionally
 	/**
 	 * @throws InvalidOrderDirectionException
 	 */
-	public function getResults()
+	public function getResults(): Collection
 	{
 		if (is_null($this->getParentKey())) {
 			return $this->related->newCollection();
@@ -91,8 +90,6 @@ class HasManyChildAlbums extends HasManyBidirectionally
 	 * @param string     $relation the name of the relation from the parent to the child models
 	 *
 	 * @return array
-	 *
-	 * @throws InvalidArgumentException
 	 */
 	public function match(array $models, Collection $results, $relation): array
 	{
@@ -106,7 +103,7 @@ class HasManyChildAlbums extends HasManyBidirectionally
 				/** @var Collection $childrenOfModel */
 				$childrenOfModel = $this->getRelationValue($dictionary, $key, 'many');
 				$childrenOfModel = $childrenOfModel
-					->sortBy($this->sorting->column, SORT_NATURAL | SORT_FLAG_CASE, $this->sorting->order === SortingCriterion::DESC)
+					->sortBy($this->sorting->column->value, SORT_NATURAL | SORT_FLAG_CASE, $this->sorting->order === OrderSortingType::DESC)
 					->values();
 				$model->setRelation($relation, $childrenOfModel);
 				// This is the newly added code which sets this method apart

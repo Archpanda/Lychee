@@ -12,7 +12,10 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\Internal\IllegalOrderOfOperationException;
+use App\Exceptions\Internal\NotImplementedException;
 use App\Models\Configs;
+use App\Models\Photo;
 use App\SmartAlbums\PublicAlbum;
 use App\SmartAlbums\RecentAlbum;
 use App\SmartAlbums\StarredAlbum;
@@ -20,16 +23,16 @@ use App\SmartAlbums\UnsortedAlbum;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Tests\Feature\Base\PhotoTestBase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Base\BasePhotoTest;
 use Tests\Feature\Lib\RootAlbumUnitTest;
 use Tests\Feature\Lib\SharingUnitTest;
 use Tests\Feature\Lib\UsersUnitTest;
 use Tests\Feature\Traits\InteractWithSmartAlbums;
 use Tests\Feature\Traits\RequiresEmptyAlbums;
 use Tests\Feature\Traits\RequiresEmptyUsers;
-use Tests\TestCase;
 
-class PhotosOperationsTest extends PhotoTestBase
+class PhotosOperationsTest extends BasePhotoTest
 {
 	use InteractWithSmartAlbums;
 	use RequiresEmptyAlbums;
@@ -68,7 +71,7 @@ class PhotosOperationsTest extends PhotoTestBase
 	public function testManyFunctionsAtOnce(): void
 	{
 		$id = $this->photos_tests->upload(
-			TestCase::createUploadedFile(TestCase::SAMPLE_FILE_NIGHT_IMAGE)
+			AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE)
 		)->offsetGet('id');
 
 		$this->photos_tests->get($id);
@@ -83,8 +86,9 @@ class PhotosOperationsTest extends PhotoTestBase
 		$this->photos_tests->set_description($id, 'A night photography');
 		$this->photos_tests->set_star([$id], true);
 		$this->photos_tests->set_tag([$id], ['night']);
+		$this->photos_tests->set_tag([$id], ['trees'], false);
 		$this->photos_tests->set_public($id, true);
-		$this->photos_tests->set_license($id, 'WTFPL', 422, 'The given data was invalid');
+		$this->photos_tests->set_license($id, 'WTFPL', 422, 'license must be one out of');
 		$this->photos_tests->set_license($id, 'CC0');
 		$this->photos_tests->set_license($id, 'CC-BY-1.0');
 		$this->photos_tests->set_license($id, 'CC-BY-2.0');
@@ -118,14 +122,10 @@ class PhotosOperationsTest extends PhotoTestBase
 		$this->photos_tests->set_license($id, 'CC-BY-NC-SA-4.0');
 		$this->photos_tests->set_license($id, 'reserved');
 
-		$this->clearCachedSmartAlbums();
-		$this->albums_tests->get(StarredAlbum::ID, 200, $id);
-		$this->albums_tests->get(PublicAlbum::ID, 200, $id);
-		$response = $this->photos_tests->get($id);
-
 		/*
 		 * Check some Exif data
 		 */
+		/** @var Carbon $taken_at */
 		$taken_at = Carbon::create(
 			2019,
 			6,
@@ -135,20 +135,31 @@ class PhotosOperationsTest extends PhotoTestBase
 			25,
 			'+02:00'
 		);
+
+		$updated_taken_at = $taken_at->addYear();
+
+		$this->photos_tests->set_upload_date($id, $updated_taken_at->toIso8601String());
+
+		$this->clearCachedSmartAlbums();
+		$this->albums_tests->get(StarredAlbum::ID, 200, $id);
+		$this->albums_tests->get(PublicAlbum::ID, 200, $id);
+		$response = $this->photos_tests->get($id);
+
 		$response->assertJson([
 			'album_id' => null,
 			'id' => $id,
+			'created_at' => $updated_taken_at->setTimezone('UTC')->format('Y-m-d\TH:i:sP'),
 			'license' => 'reserved',
-			'is_public' => 1,
+			'is_public' => true,
 			'is_starred' => true,
-			'tags' => ['night'],
+			'tags' => ['night', 'trees'],
 		]);
 
 		/**
 		 * Actually try to display the picture.
 		 */
 		$response = $this->postJson('/api/Photo::getRandom');
-		$response->assertOk();
+		$this->assertOk($response);
 
 		/*
 		 * Erase tag
@@ -171,36 +182,38 @@ class PhotosOperationsTest extends PhotoTestBase
 		 */
 		$response = $this->photos_tests->duplicate([$id], $albumID);
 		$response->assertJson([
-			'album_id' => $albumID,
-			'aperture' => 'f/2.8',
-			'description' => 'A night photography',
-			'focal' => '16 mm',
-			'iso' => '1250',
-			'lens' => 'EF16-35mm f/2.8L USM',
-			'license' => 'reserved',
-			'make' => 'Canon',
-			'model' => 'Canon EOS R',
-			'is_public' => 1,
-			'shutter' => '30 s',
-			'is_starred' => true,
-			'tags' => [],
-			'taken_at' => $taken_at->format('Y-m-d\TH:i:s.uP'),
-			'taken_at_orig_tz' => $taken_at->getTimezone()->getName(),
-			'title' => "Night in Ploumanac'h",
-			'type' => TestCase::MIME_TYPE_IMG_JPEG,
-			'size_variants' => [
-				'small' => [
-					'width' => 540,
-					'height' => 360,
-				],
-				'medium' => [
-					'width' => 1620,
-					'height' => 1080,
-				],
-				'original' => [
-					'width' => 6720,
-					'height' => 4480,
-					'filesize' => 21106422,
+			0 => [
+				'album_id' => $albumID,
+				'aperture' => 'f/2.8',
+				'description' => 'A night photography',
+				'focal' => '16 mm',
+				'iso' => '1250',
+				'lens' => 'EF16-35mm f/2.8L USM',
+				'license' => 'reserved',
+				'make' => 'Canon',
+				'model' => 'Canon EOS R',
+				'is_public' => true,
+				'shutter' => '30 s',
+				'is_starred' => true,
+				'tags' => [],
+				'taken_at' => '2019-06-01T01:28:25+02:00',
+				'taken_at_orig_tz' => '+02:00',
+				'title' => "Night in Ploumanac'h",
+				'type' => AbstractTestCase::MIME_TYPE_IMG_JPEG,
+				'size_variants' => [
+					'small' => [
+						'width' => 540,
+						'height' => 360,
+					],
+					'medium' => [
+						'width' => 1620,
+						'height' => 1080,
+					],
+					'original' => [
+						'width' => 6720,
+						'height' => 4480,
+						'filesize' => 21106422,
+					],
 				],
 			],
 		]);
@@ -208,6 +221,7 @@ class PhotosOperationsTest extends PhotoTestBase
 		/**
 		 * Get album which should contain both photos.
 		 */
+		/** @var \App\Models\Album $album */
 		$album = static::convertJsonToObject($this->albums_tests->get($albumID));
 		static::assertCount(2, $album->photos);
 
@@ -227,34 +241,18 @@ class PhotosOperationsTest extends PhotoTestBase
 		 * Actually try to display the picture.
 		 */
 		$response = $this->postJson('/api/Photo::getRandom');
-		$response->assertOk();
+		$this->assertOk($response);
 
 		// delete the picture after displaying it
 		$this->photos_tests->delete([$ids[1]]);
 		$this->photos_tests->get($ids[1], 404);
+		/** @var \App\Models\Album $album */
 		$album = static::convertJsonToObject($this->albums_tests->get($albumID));
 		static::assertCount(0, $album->photos);
-
-		// save initial value
-		$init_config_value = Configs::getValue('gen_demo_js');
-
-		// set to 0
-		Configs::set('gen_demo_js', '1');
-		static::assertEquals('1', Configs::getValue('gen_demo_js'));
-
-		// check redirection
-		$this->clearCachedSmartAlbums();
-		$response = $this->get('/demo');
-		$response->assertOk();
-		$response->assertViewIs('demo');
-
-		// set back to initial value
-		Configs::set('gen_demo_js', $init_config_value);
-
 		$this->albums_tests->delete([$albumID]);
 
 		$response = $this->postJson('/api/Photo::clearSymLink');
-		$response->assertNoContent();
+		$this->assertNoContent($response);
 	}
 
 	/**
@@ -329,7 +327,7 @@ class PhotosOperationsTest extends PhotoTestBase
 		$photoSortingOrder = Configs::getValueAsString(self::CONFIG_PHOTOS_SORTING_ORDER);
 
 		try {
-			Auth::loginUsingId(0);
+			Auth::loginUsingId(1);
 			Configs::set(self::CONFIG_PUBLIC_RECENT, true);
 			Configs::set(self::CONFIG_PUBLIC_HIDDEN, false);
 			Configs::set(self::CONFIG_PUBLIC_SEARCH, true);
@@ -348,19 +346,19 @@ class PhotosOperationsTest extends PhotoTestBase
 			$albumID11 = $this->albums_tests->add($albumID1, 'Test Album 1.1')->offsetGet('id');
 
 			$photoID11 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_NIGHT_IMAGE), $albumID11
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_NIGHT_IMAGE), $albumID11
 			)->offsetGet('id');
 			$photoID13 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_MONGOLIA_IMAGE), $albumID13
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_MONGOLIA_IMAGE), $albumID13
 			)->offsetGet('id');
 			$photoID12 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_TRAIN_IMAGE), $albumID12
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_TRAIN_IMAGE), $albumID12
 			)->offsetGet('id');
 			$photoID121 = $this->photos_tests->upload(
-				TestCase::createUploadedFile(TestCase::SAMPLE_FILE_SUNSET_IMAGE), $albumID121
+				AbstractTestCase::createUploadedFile(AbstractTestCase::SAMPLE_FILE_SUNSET_IMAGE), $albumID121
 			)->offsetGet('id');
 
-			$this->albums_tests->set_protection_policy($albumID1, true, true, true);
+			$this->albums_tests->set_protection_policy(id: $albumID1, grants_full_photo_access: true, is_public: true, is_link_required: true);
 			$this->albums_tests->set_protection_policy($albumID11);
 			$this->albums_tests->set_protection_policy($albumID12);
 			$this->albums_tests->set_protection_policy($albumID121);
@@ -379,14 +377,16 @@ class PhotosOperationsTest extends PhotoTestBase
 			$responseForRoot = $this->root_album_tests->get();
 			$responseForRoot->assertJson([
 				'smart_albums' => [
-					'unsorted' => null,
-					'starred' => null,
-					'public' => null,
 					'recent' => ['thumb' => null],
 				],
 				'tag_albums' => [],
 				'albums' => [],
 				'shared_albums' => [],
+			]);
+			$responseForRoot->assertJsonMissing([
+				'unsorted' => null,
+				'starred' => null,
+				'public' => null,
 			]);
 			foreach ([$albumID1, $photoID11, $photoID12, $photoID121, $photoID13] as $id) {
 				$responseForRoot->assertJsonMissing(['id' => $id]);
@@ -461,7 +461,7 @@ class PhotosOperationsTest extends PhotoTestBase
 
 	public function testDeleteMultiplePhotosByAnonUser(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$albumID = $this->albums_tests->add(null, 'Test Album')->offsetGet('id');
 		$photoID1 = $this->photos_tests->upload(
 			self::createUploadedFile(self::SAMPLE_FILE_MONGOLIA_IMAGE), $albumID
@@ -477,7 +477,7 @@ class PhotosOperationsTest extends PhotoTestBase
 
 	public function testDeleteMultiplePhotosByNonOwner(): void
 	{
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 		$userID1 = $this->users_tests->add('Test user 1', 'Test password 1')->offsetGet('id');
 		$userID2 = $this->users_tests->add('Test user 2', 'Test password 2')->offsetGet('id');
 		Auth::logout();
@@ -495,5 +495,44 @@ class PhotosOperationsTest extends PhotoTestBase
 		Session::flush();
 		Auth::loginUsingId($userID2);
 		$this->photos_tests->delete([$photoID1, $photoID2], 403);
+	}
+
+	/**
+	 * Test setting legacy ID.
+	 *
+	 * @return void
+	 */
+	public function testNotImplemented(): void
+	{
+		$this->expectException(NotImplementedException::class);
+
+		$photo = new Photo();
+		$photo->legacy_id = 1234;
+	}
+
+	/**
+	 * Test setting legacy ID.
+	 *
+	 * @return void
+	 */
+	public function testNotImplemented2(): void
+	{
+		$this->expectException(NotImplementedException::class);
+
+		$photo = new Photo();
+		$photo->id = '0000';
+	}
+
+	/**
+	 * Test setting unsettable attributes.
+	 *
+	 * @return void
+	 */
+	public function testMustNotSet(): void
+	{
+		$this->expectException(IllegalOrderOfOperationException::class);
+
+		$photo = new Photo();
+		$photo->live_photo_full_path = 'Something';
 	}
 }

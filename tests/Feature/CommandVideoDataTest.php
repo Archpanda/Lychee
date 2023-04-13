@@ -12,26 +12,29 @@
 
 namespace Tests\Feature;
 
-use App\Models\SizeVariant;
+use App\Enum\SizeVariantType;
 use Illuminate\Support\Facades\DB;
-use Tests\Feature\Base\PhotoTestBase;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Base\BasePhotoTest;
 
-class CommandVideoDataTest extends PhotoTestBase
+class CommandVideoDataTest extends BasePhotoTest
 {
 	public const COMMAND = 'lychee:video_data';
 
 	public function testThumbRecreation(): void
 	{
+		$this->assertHasFFMpegOrSkip();
+
+		/** @var \App\Models\Photo $photo1 */
 		$photo1 = static::convertJsonToObject($this->photos_tests->upload(
-			static::createUploadedFile(TestCase::SAMPLE_FILE_TRAIN_VIDEO)
+			static::createUploadedFile(AbstractTestCase::SAMPLE_FILE_TRAIN_VIDEO)
 		));
 
 		// Remove the size variant "thumb" from disk and from DB
 		\Safe\unlink(public_path($photo1->size_variants->thumb->url));
 		DB::table('size_variants')
 			->where('photo_id', '=', $photo1->id)
-			->where('type', '=', SizeVariant::THUMB)
+			->where('type', '=', SizeVariantType::THUMB)
 			->delete();
 
 		// Re-create it
@@ -39,10 +42,11 @@ class CommandVideoDataTest extends PhotoTestBase
 			->assertExitCode(0);
 
 		// Get updated video and check if thumb has been re-created
+		/** @var \App\Models\Photo $photo2 */
 		$photo2 = static::convertJsonToObject($this->photos_tests->get($photo1->id));
-		static::assertNotNull($photo2->size_variants->thumb);
-		static::assertEquals($photo1->size_variants->thumb->width, $photo2->size_variants->thumb->width);
-		static::assertEquals($photo1->size_variants->thumb->height, $photo2->size_variants->thumb->height);
-		static::assertFileExists(public_path($photo2->size_variants->thumb->url));
+		$this->assertNotNull($photo2->size_variants->thumb);
+		$this->assertEquals($photo1->size_variants->thumb->width, $photo2->size_variants->thumb->width);
+		$this->assertEquals($photo1->size_variants->thumb->height, $photo2->size_variants->thumb->height);
+		$this->assertFileExists(public_path($photo2->size_variants->thumb->url));
 	}
 }

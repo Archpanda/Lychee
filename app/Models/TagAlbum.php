@@ -7,6 +7,7 @@ use App\Exceptions\InvalidPropertyException;
 use App\Models\Extensions\BaseAlbum;
 use App\Models\Extensions\TagAlbumBuilder;
 use App\Models\Extensions\Thumb;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Relations\HasManyPhotosByTag;
 use Illuminate\Database\Query\Builder as BaseBuilder;
 
@@ -17,9 +18,17 @@ use Illuminate\Database\Query\Builder as BaseBuilder;
  *
  * @method static TagAlbumBuilder query()                       Begin querying the model.
  * @method static TagAlbumBuilder with(array|string $relations) Begin querying the model with eager loading.
+ *
+ * @property string                                                          $id
+ * @property \App\Models\BaseAlbumImpl                                       $base_class
+ * @property \App\Models\User                                                $owner
+ * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\User> $shared_with
+ * @property int|null                                                        $shared_with_count
  */
 class TagAlbum extends BaseAlbum
 {
+	use ToArrayThrowsNotImplemented;
+
 	/**
 	 * The model's attributes.
 	 *
@@ -43,14 +52,7 @@ class TagAlbum extends BaseAlbum
 		'min_taken_at' => 'datetime',
 		'max_taken_at' => 'datetime',
 		'show_tags' => ArrayCast::class,
-	];
-
-	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		'base_class', // don't serialize base class as a relation, the attributes of the base class are flatly merged into the JSON result
+		'is_shared_with_current_user' => 'boolean',
 	];
 
 	/**
@@ -100,14 +102,6 @@ class TagAlbum extends BaseAlbum
 			$this->photos(),
 			$this->getEffectiveSorting()
 		);
-	}
-
-	public function toArray(): array
-	{
-		$result = parent::toArray();
-		$result['is_tag_album'] = true;
-
-		return $result;
 	}
 
 	/**

@@ -5,16 +5,16 @@ namespace App\Actions\Import;
 use App\Actions\Album\Create as AlbumCreate;
 use App\Actions\Photo\Create as PhotoCreate;
 use App\Actions\Photo\Strategies\ImportMode;
+use App\DTO\BaseImportReport;
 use App\DTO\ImportEventReport;
 use App\DTO\ImportProgressReport;
-use App\DTO\ImportReport;
 use App\Exceptions\FileOperationException;
 use App\Exceptions\Handler;
 use App\Exceptions\ImportCancelledException;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\InvalidDirectoryException;
 use App\Exceptions\ReservedDirectoryException;
-use App\Image\NativeLocalFile;
+use App\Image\Files\NativeLocalFile;
 use App\Models\Album;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\JsonEncodingException;
@@ -28,10 +28,10 @@ use Safe\Exceptions\StringsException;
 use function Safe\file;
 use function Safe\glob;
 use function Safe\ini_get;
+use function Safe\ob_flush;
 use function Safe\preg_match;
 use function Safe\realpath;
 use function Safe\set_time_limit;
-use function Safe\substr;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class Exec
@@ -49,11 +49,11 @@ class Exec
 	 * @param bool       $enableCLIFormatting determines whether the output shall be formatted for CLI or as JSON
 	 * @param int        $memLimit            the threshold when a memory warning shall be reported; `0` means unlimited
 	 */
-	public function __construct(ImportMode $importMode, bool $enableCLIFormatting, int $memLimit = 0)
+	public function __construct(ImportMode $importMode, int $intendedOwnerId, bool $enableCLIFormatting, int $memLimit = 0)
 	{
 		Session::forget('cancel');
 		$this->importMode = $importMode;
-		$this->photoCreate = new PhotoCreate($importMode);
+		$this->photoCreate = new PhotoCreate($importMode, $intendedOwnerId);
 		$this->albumCreate = new AlbumCreate();
 		$this->enableCLIFormatting = $enableCLIFormatting;
 		$this->memLimit = $memLimit;
@@ -76,11 +76,11 @@ class Exec
 	 * If the `ImportReport` carries an exception, the exception is logged
 	 * via the standard mechanism of the exception handler.
 	 *
-	 * @param ImportReport $report the report
+	 * @param BaseImportReport $report the report
 	 *
 	 * @return void
 	 */
-	private function report(ImportReport $report): void
+	private function report(BaseImportReport $report): void
 	{
 		if (!$this->enableCLIFormatting) {
 			try {

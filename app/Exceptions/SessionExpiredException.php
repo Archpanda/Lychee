@@ -2,9 +2,9 @@
 
 namespace App\Exceptions;
 
-class SessionExpiredException extends LycheeBaseException
+class SessionExpiredException extends BaseLycheeException
 {
-	/** @var int proprietary Laravel HTTP status code to indicate session expiration */
+	/** @var int HTTP_PAGE_EXPIRED proprietary Laravel HTTP status code to indicate session expiration */
 	public const HTTP_PAGE_EXPIRED = 419;
 
 	public const DEFAULT_MESSAGE = 'Session expired';

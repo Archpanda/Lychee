@@ -2,7 +2,7 @@
 
 namespace App\SmartAlbums\Utils;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\Exceptions\Internal\LycheeInvalidArgumentException;
 use Illuminate\Database\Eloquent\JsonEncodingException;
 use Illuminate\Support\Str;
@@ -71,11 +71,16 @@ trait MimicModel
 		$studlyKey = lcfirst($studlyKey);
 
 		if (method_exists($this, $getter)) {
-			return $this->{$getter}(); // @phpstan-ignore-line, PhpStan does not like variadic calls
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
+			return $this->{$getter}();
+		} elseif (property_exists($this, $key)) {
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
+			return $this->{$key};
 		} elseif (property_exists($this, $studlyKey)) {
-			return $this->{$studlyKey}; // @phpstan-ignore-line, PhpStan does not like variadic calls
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
+			return $this->{$studlyKey};
 		} else {
-			throw new LycheeInvalidArgumentException('neither property nor getter method exist');
+			throw new LycheeInvalidArgumentException('neither property nor getter method exist for [' . $getter . '/' . $key . '/' . $studlyKey . ']');
 		}
 	}
 
@@ -89,5 +94,17 @@ trait MimicModel
 	public function __toString(): string
 	{
 		return $this->toJson();
+	}
+
+	/**
+	 * Determine if the given relation is loaded.
+	 *
+	 * @param string $key
+	 *
+	 * @return bool
+	 */
+	public function relationLoaded($key)
+	{
+		return $key === 'photos' && $this->photos !== null;
 	}
 }

@@ -14,11 +14,14 @@ namespace Tests\Feature;
 
 use App\Models\Configs;
 use App\Models\User;
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
-use Tests\TestCase;
+use function Safe\file_get_contents;
+use Tests\AbstractTestCase;
 
-class InstallTest extends TestCase
+class InstallTest extends AbstractTestCase
 {
 	/**
 	 * Testing the Login interface.
@@ -30,93 +33,56 @@ class InstallTest extends TestCase
 		/*
 		 * Get previous config
 		 */
-		/** @var User $admin */
-		$admin = User::query()->find(0);
 
 		$prevAppKey = config('app.key');
 		config(['app.key' => null]);
 		$response = $this->get('install/');
-		$response->assertOk();
+		$this->assertOk($response);
 		config(['app.key' => $prevAppKey]);
 
-		// TODO: Why does a `git pull` delete `installed.log`? This test needs to be discussed with @ildyria
-		if (file_exists(base_path('installed.log'))) {
-			unlink(base_path('installed.log'));
-		}
-		/**
-		 * No installed.log: we should not be redirected to install (case where we have not done the last migration).
-		 */
 		$response = $this->get('/');
-		$response->assertOk();
+		$this->assertOk($response);
 
 		/*
-		 * Clearing things up. We could do an Artisan migrate but this is more efficient.
+		 * Clearing things up. We could do an Artisan migrate:reset but this is more efficient.
 		 */
-
-		// The order is important: referring tables must be deleted first, referred tables last
-		$tables = [
-			'sym_links',
-			'size_variants',
-			'photos',
-			'configs',
-			'logs',
-			'migrations',
-			'notifications',
-			'page_contents',
-			'pages',
-			'user_base_album',
-			'tag_albums',
-			'albums',
-			'base_albums',
-			'web_authn_credentials',
-			'users',
-		];
-
-		if (Schema::connection(null)->getConnection()->getDriverName() !== 'sqlite') {
-			// We must remove the foreign constraint from `albums` to `photos` to
-			// break up circular dependencies.
-			Schema::table('albums', function (Blueprint $table) {
-				$table->dropForeign('albums_cover_id_foreign');
-			});
-		}
-
-		foreach ($tables as $table) {
-			Schema::dropIfExists($table);
-		}
+		Schema::disableForeignKeyConstraints();
+		Schema::dropAllTables();
+		Schema::enableForeignKeyConstraints();
 
 		/**
 		 * No database: we should be redirected to install: default case.
 		 */
 		$response = $this->get('/');
-		$response->assertStatus(307);
+		$this->assertStatus($response, 307);
 		$response->assertRedirect('install/');
 
 		/**
 		 * Check the welcome page.
 		 */
 		$response = $this->get('install/');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.welcome');
 
 		/**
 		 * Check the requirements page.
 		 */
 		$response = $this->get('install/req');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.requirements');
 
 		/**
 		 * Check the permissions page.
 		 */
 		$response = $this->get('install/perm');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.permissions');
 
 		/**
 		 * Check the env page.
 		 */
 		$response = $this->get('install/env');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.env');
 
 		$env = file_get_contents(base_path('.env'));
@@ -125,31 +91,76 @@ class InstallTest extends TestCase
 		 * POST '.env' the env page.
 		 */
 		$response = $this->post('install/env', ['envConfig' => $env]);
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.env');
 
 		/**
 		 * apply migration.
 		 */
 		$response = $this->get('install/migrate');
-		$response->assertOk();
+		$this->assertOk($response);
 		$response->assertViewIs('install.migrate');
+
+		$response = $this->get('install/admin');
+		$this->assertOk($response);
+		$response->assertViewIs('install.setup-admin');
+
+		/**
+		 * set up admin user migration.
+		 */
+		$response = $this->post('install/admin', ['username' => 'admin', 'password' => 'password', 'password_confirmation' => 'password']);
+		$this->assertOk($response);
+		$response->assertViewIs('install.setup-success');
+
+		// try to login with newly created admin
+		$this->assertTrue(Auth::attempt(['username' => 'admin', 'password' => 'password']));
+		Auth::logout();
 
 		/**
 		 * Re-Installation should be forbidden now.
 		 */
 		$response = $this->get('install/');
-		$response->assertForbidden();
+		$this->assertForbidden($response);
+
+		/**
+		 * Setting admin should be forbidden now.
+		 */
+		$response = $this->get('install/admin');
+		$this->assertForbidden($response);
 
 		/**
 		 * We now should NOT be redirected.
 		 */
 		Configs::invalidateCache();
 		$response = $this->get('/');
-		$response->assertOk();
+		$this->assertOk($response);
 
-		$admin->save();
-		$admin->id = 0;
-		$admin->save();
+		/*
+		 * make sure there's still an admin user with ID 1
+		 */
+		/** @var User|null $admin */
+		$admin = User::find(1);
+		if ($admin === null) {
+			$admin = new User();
+			$admin->incrementing = false;
+			$admin->id = 1;
+			$admin->may_upload = true;
+			$admin->may_edit_own_settings = true;
+			$admin->may_administrate = true;
+			$admin->username = 'admin';
+			$admin->password = Hash::make('password');
+			$admin->save();
+			if (Schema::connection(null)->getConnection()->getDriverName() === 'pgsql' && DB::table('users')->count() > 0) {
+				// when using PostgreSQL, the next ID value is kept when inserting without incrementing
+				// which results in errors because trying to insert a user with ID = 1.
+				// Thus, we need to reset the index to the greatest ID + 1
+				/** @var User $lastUser */
+				$lastUser = User::query()->orderByDesc('id')->first();
+				DB::statement('ALTER SEQUENCE users_id_seq1 RESTART WITH ' . strval($lastUser->id + 1));
+			}
+		} elseif (!$admin->may_administrate) {
+			$admin->may_administrate = true;
+			$admin->save();
+		}
 	}
 }

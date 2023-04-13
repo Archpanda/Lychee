@@ -2,12 +2,17 @@
 
 namespace App\Models;
 
-use App\Contracts\HasRandomID;
+use App\Constants\RandomID;
+use App\Contracts\Models\HasRandomID;
+use App\DTO\AlbumProtectionPolicy;
 use App\DTO\PhotoSortingCriterion;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
 use App\Models\Extensions\HasAttributesPatch;
 use App\Models\Extensions\HasBidirectionalRelationships;
 use App\Models\Extensions\HasRandomIDAndLegacyTimeBasedID;
 use App\Models\Extensions\ThrowsConsistentExceptions;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UseFixedQueryBuilder;
 use App\Models\Extensions\UTCBasedTimes;
 use Carbon\Carbon;
@@ -15,7 +20,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Support\Facades\Auth;
 
 /**
  * Class BaseAlbumImpl.
@@ -76,7 +80,7 @@ use Illuminate\Support\Facades\Auth;
  * implementation depends on the specific sub-type of album and thus must
  * be implemented by the child classes.
  * For example, every album contains photos and thus must provide
- * {@link \App\Contracts\AbstractAlbum::$photos}, but the way how an album
+ * {@link \App\Contracts\Models\AbstractAlbum::$photos}, but the way how an album
  * defines its collection of photos is specific for the album.
  * Normally, a proper parent class would use abstract methods for these cases,
  * but this class is not a proper parent class (it just provides an
@@ -91,15 +95,19 @@ use Illuminate\Support\Facades\Auth;
  * @property int                        $owner_id
  * @property User                       $owner
  * @property bool                       $is_public
- * @property bool                       $grants_full_photo
- * @property bool                       $requires_link
- * @property bool                       $is_downloadable
- * @property bool                       $is_share_button_visible
+ * @property bool                       $is_link_required
  * @property bool                       $is_nsfw
+ * @property bool                       $grants_full_photo_access
+ * @property bool                       $grants_download
  * @property Collection                 $shared_with
+ * @property int|null                   $shared_with_count
  * @property string|null                $password
- * @property bool                       $has_password
+ * @property bool                       $is_password_required
  * @property PhotoSortingCriterion|null $sorting
+ * @property AlbumProtectionPolicy      $policy
+ * @property int                        $is_share_button_visible  // NOT USED
+ * @property string|null                $sorting_col
+ * @property string|null                $sorting_order
  */
 class BaseAlbumImpl extends Model implements HasRandomID
 {
@@ -110,13 +118,14 @@ class BaseAlbumImpl extends Model implements HasRandomID
 	use HasBidirectionalRelationships;
 	/** @phpstan-use UseFixedQueryBuilder<BaseAlbumImpl> */
 	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	protected $table = 'base_albums';
 
 	/**
 	 * @var string The type of the primary key
 	 */
-	protected $keyType = \App\Contracts\HasRandomID::ID_TYPE;
+	protected $keyType = RandomID::ID_TYPE;
 
 	/**
 	 * Indicates if the model's primary key is auto-incrementing.
@@ -138,58 +147,36 @@ class BaseAlbumImpl extends Model implements HasRandomID
 	 */
 	protected $attributes = [
 		'id' => null,
-		HasRandomID::LEGACY_ID_NAME => null,
+		RandomID::LEGACY_ID_NAME => null,
 		'created_at' => null,
 		'updated_at' => null,
 		'title' => null, // Sic! `title` is actually non-nullable, but using `null` here forces the caller to actually set a title before saving.
 		'description' => null,
 		'owner_id' => 0,
-		'is_public' => false,
-		'grants_full_photo' => true,
-		'requires_link' => false,
-		'is_downloadable' => false,
-		'is_share_button_visible' => false,
-		'is_nsfw' => false,
-		'password' => null,
 		'sorting_col' => null,
 		'sorting_order' => null,
+		// Security attributes
+		'is_nsfw' => false,
+		'is_public' => false,
+		'is_link_required' => false,
+		'password' => null,
+		// Permissions
+		'grants_full_photo_access' => true,
+		'grants_download' => false,
 	];
 
 	/**
 	 * @var array<string, string>
 	 */
 	protected $casts = [
-		'id' => HasRandomID::ID_TYPE,
-		HasRandomID::LEGACY_ID_NAME => HasRandomID::LEGACY_ID_TYPE,
+		'id' => RandomID::ID_TYPE,
+		RandomID::LEGACY_ID_NAME => RandomID::LEGACY_ID_TYPE,
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
 		'is_public' => 'boolean',
-		'requires_link' => 'boolean',
+		'is_link_required' => 'boolean',
 		'is_nsfw' => 'boolean',
 		'owner_id' => 'integer',
-	];
-
-	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		HasRandomID::LEGACY_ID_NAME,
-		'owner_id',
-		'owner',
-		'password',
-		'sorting_col',   // serialize DTO `order` instead
-		'sorting_order', // serialize DTO `order` instead
-	];
-
-	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
-	 */
-	protected $appends = [
-		'has_password',
-		'sorting',
 	];
 
 	/**
@@ -228,7 +215,7 @@ class BaseAlbumImpl extends Model implements HasRandomID
 		if ($this->is_public) {
 			return $value;
 		} else {
-			return Configs::getValueAsBool('full_photo');
+			return Configs::getValueAsBool('grants_full_photo_access');
 		}
 	}
 
@@ -237,20 +224,11 @@ class BaseAlbumImpl extends Model implements HasRandomID
 		if ($this->is_public) {
 			return $value;
 		} else {
-			return Configs::getValueAsBool('downloadable');
+			return Configs::getValueAsBool('grants_download');
 		}
 	}
 
-	protected function getIsShareButtonVisibleAttribute(bool $value): bool
-	{
-		if ($this->is_public) {
-			return $value;
-		} else {
-			return Configs::getValueAsBool('share_button_visible');
-		}
-	}
-
-	protected function getHasPasswordAttribute(): bool
+	protected function getIsPasswordRequiredAttribute(): bool
 	{
 		return $this->password !== null && $this->password !== '';
 	}
@@ -262,22 +240,40 @@ class BaseAlbumImpl extends Model implements HasRandomID
 
 		return ($sortingColumn === null || $sortingOrder === null) ?
 			null :
-			new PhotoSortingCriterion($sortingColumn, $sortingOrder);
+			new PhotoSortingCriterion(
+				ColumnSortingType::from($sortingColumn),
+				OrderSortingType::from($sortingOrder));
 	}
 
 	protected function setSortingAttribute(?PhotoSortingCriterion $sorting): void
 	{
-		$this->attributes['sorting_col'] = $sorting?->column;
-		$this->attributes['sorting_order'] = $sorting?->order;
+		$this->attributes['sorting_col'] = $sorting?->column->value;
+		$this->attributes['sorting_order'] = $sorting?->order->value;
 	}
 
-	public function toArray(): array
+	protected function setPolicyAttribute(AlbumProtectionPolicy $protectionPolicy): void
 	{
-		$result = parent::toArray();
-		if (Auth::check()) {
-			$result['owner_name'] = $this->owner->name();
-		}
+		// Security attributes of the album itself independent of a particular user
+		// Note: The first one (`is_public`) will become implicit in the future when the following three attributes are
+		// move to a separate table for sharing albums with anonymous users
+		$this->attributes['is_public'] = $protectionPolicy->is_public;
+		$this->attributes['is_nsfw'] = $protectionPolicy->is_nsfw;
+		$this->attributes['is_link_required'] = $protectionPolicy->is_link_required;
 
-		return $result;
+		// (Future) permissions on an album-user relation.
+		// Note: For the time being these are still "globally" defined on the album for all users, but they will be
+		// moved to a separate table for sharing albums with users.
+		$this->attributes['grants_full_photo_access'] = $protectionPolicy->grants_full_photo_access;
+		$this->attributes['grants_download'] = $protectionPolicy->grants_download;
+	}
+
+	/**
+	 * Provide the policy attributes for said album.
+	 *
+	 * @return AlbumProtectionPolicy
+	 */
+	protected function getPolicyAttribute(): AlbumProtectionPolicy
+	{
+		return AlbumProtectionPolicy::ofBaseAlbumImplementation($this);
 	}
 }

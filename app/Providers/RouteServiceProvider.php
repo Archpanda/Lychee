@@ -45,18 +45,11 @@ class RouteServiceProvider extends ServiceProvider
 				->prefix('api')
 				->group(base_path('routes/api.php'));
 
-			Route::middleware('api-admin')
-				->prefix('api')
-				->group(base_path('routes/api-admin.php'));
-
 			Route::middleware('web-install')
 				->group(base_path('routes/web-install.php'));
 
 			Route::middleware('web-admin')
 				->group(base_path('routes/web-admin.php'));
-
-			Route::middleware('web')
-				->group(base_path('routes/web-livewire.php'));
 
 			Route::middleware('web')
 				->group(base_path('routes/web.php'));

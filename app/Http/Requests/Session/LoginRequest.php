@@ -2,13 +2,13 @@
 
 namespace App\Http\Requests\Session;
 
+use App\Contracts\Http\Requests\HasPassword;
+use App\Contracts\Http\Requests\HasUsername;
+use App\Contracts\Http\Requests\RequestAttribute;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasPassword;
-use App\Http\Requests\Contracts\HasUsername;
 use App\Http\Requests\Traits\HasPasswordTrait;
 use App\Http\Requests\Traits\HasUsernameTrait;
-use App\Rules\PasswordRule;
-use App\Rules\UsernameRule;
+use App\Http\RuleSets\Session\LoginRuleSet;
 
 class LoginRequest extends BaseApiRequest implements HasUsername, HasPassword
 {
@@ -28,10 +28,7 @@ class LoginRequest extends BaseApiRequest implements HasUsername, HasPassword
 	 */
 	public function rules(): array
 	{
-		return [
-			HasUsername::USERNAME_ATTRIBUTE => ['required', new UsernameRule()],
-			HasPassword::PASSWORD_ATTRIBUTE => ['required', new PasswordRule(false)],
-		];
+		return LoginRuleSet::rules();
 	}
 
 	/**
@@ -39,7 +36,7 @@ class LoginRequest extends BaseApiRequest implements HasUsername, HasPassword
 	 */
 	protected function processValidatedValues(array $values, array $files): void
 	{
-		$this->username = $values[HasUsername::USERNAME_ATTRIBUTE];
-		$this->password = $values[HasPassword::PASSWORD_ATTRIBUTE];
+		$this->username = $values[RequestAttribute::USERNAME_ATTRIBUTE];
+		$this->password = $values[RequestAttribute::PASSWORD_ATTRIBUTE];
 	}
 }

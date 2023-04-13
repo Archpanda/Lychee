@@ -13,13 +13,16 @@
 namespace Tests\Feature\Lib;
 
 use Illuminate\Testing\TestResponse;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Traits\CatchFailures;
 
 class SessionUnitTest
 {
-	private TestCase $testCase;
+	use CatchFailures;
 
-	public function __construct(TestCase $testCase)
+	private AbstractTestCase $testCase;
+
+	public function __construct(AbstractTestCase $testCase)
 	{
 		$this->testCase = $testCase;
 	}
@@ -44,8 +47,8 @@ class SessionUnitTest
 			'username' => $username,
 			'password' => $password,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -63,8 +66,8 @@ class SessionUnitTest
 		?string $assertSee = null
 	): TestResponse {
 		$response = $this->testCase->postJson('/api/Session::init');
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -104,8 +107,8 @@ class SessionUnitTest
 			'username' => $login,
 			'password' => $password,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 
@@ -130,13 +133,13 @@ class SessionUnitTest
 		int $expectedStatusCode = 200,
 		?string $assertSee = null
 	): TestResponse {
-		$response = $this->testCase->postJson('/api/Settings::updateLogin', [
+		$response = $this->testCase->postJson('/api/User::updateLogin', [
 			'username' => $login,
 			'password' => $password,
 			'oldPassword' => $oldPassword,
 		]);
-		$response->assertStatus($expectedStatusCode);
-		if ($assertSee) {
+		$this->assertStatus($response, $expectedStatusCode);
+		if ($assertSee !== null) {
 			$response->assertSee($assertSee, false);
 		}
 

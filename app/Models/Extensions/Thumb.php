@@ -2,17 +2,18 @@
 
 namespace App\Models\Extensions;
 
-use App\DTO\DTO;
-use App\DTO\PhotoSortingCriterion;
+use App\DTO\AbstractDTO;
 use App\DTO\SortingCriterion;
+use App\Enum\ColumnSortingPhotoType;
+use App\Enum\OrderSortingType;
+use App\Enum\SizeVariantType;
 use App\Exceptions\InvalidPropertyException;
 use App\Models\Photo;
-use App\Models\SizeVariant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
-class Thumb extends DTO
+class Thumb extends AbstractDTO
 {
 	protected string $id;
 	protected string $type;
@@ -37,7 +38,7 @@ class Thumb extends DTO
 	 */
 	public static function sizeVariantsFilter(HasMany $relation): HasMany
 	{
-		return $relation->whereIn('type', [SizeVariant::THUMB, SizeVariant::THUMB2X]);
+		return $relation->whereIn('type', [SizeVariantType::THUMB, SizeVariantType::THUMB2X]);
 	}
 
 	/**
@@ -59,9 +60,9 @@ class Thumb extends DTO
 		try {
 			/** @var Photo|null $cover */
 			$cover = $photoQueryable
-				->withOnly(['size_variants' => fn (HasMany $r) => self::sizeVariantsFilter($r)])
-				->orderBy('photos.' . PhotoSortingCriterion::COLUMN_IS_STARRED, SortingCriterion::DESC)
-				->orderBy('photos.' . $sorting->column, $sorting->order)
+				->withOnly(['size_variants' => (fn (HasMany $r) => self::sizeVariantsFilter($r))])
+				->orderBy('photos.' . ColumnSortingPhotoType::IS_STARRED->value, OrderSortingType::DESC->value)
+				->orderBy('photos.' . $sorting->column->value, $sorting->order->value)
 				->select(['photos.id', 'photos.type'])
 				->first();
 

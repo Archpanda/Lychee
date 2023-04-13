@@ -5,11 +5,16 @@ namespace App\Http\Controllers;
 use App\Actions\Import\FromServer;
 use App\Actions\Import\FromUrl;
 use App\Exceptions\MassImportException;
+use App\Exceptions\UnauthenticatedException;
+use App\Http\Requests\Import\CancelImportServerRequest;
 use App\Http\Requests\Import\ImportFromUrlRequest;
 use App\Http\Requests\Import\ImportServerRequest;
+use App\Http\Resources\Models\PhotoResource;
 use App\Models\Photo;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -49,13 +54,18 @@ class ImportController extends Controller
 	 * @param ImportFromUrlRequest $request
 	 * @param FromUrl              $fromUrl
 	 *
-	 * @return Collection<Photo>
+	 * @return AnonymousResourceCollection
 	 *
 	 * @throws MassImportException
 	 */
-	public function url(ImportFromUrlRequest $request, FromUrl $fromUrl): Collection
+	public function url(ImportFromUrlRequest $request, FromUrl $fromUrl): AnonymousResourceCollection
 	{
-		return $fromUrl->do($request->urls(), $request->album());
+		/** @var int $currentUserId */
+		$currentUserId = Auth::id() ?? throw new UnauthenticatedException();
+
+		$photos = $fromUrl->do($request->urls(), $request->album(), $currentUserId);
+
+		return PhotoResource::collection($photos);
 	}
 
 	/**
@@ -66,15 +76,18 @@ class ImportController extends Controller
 	 */
 	public function server(ImportServerRequest $request, FromServer $fromServer): StreamedResponse
 	{
+		/** @var int $currentUserId */
+		$currentUserId = Auth::id() ?? throw new UnauthenticatedException();
+
 		return $fromServer->do(
-			$request->paths(), $request->album(), $request->importMode()
+			$request->paths(), $request->album(), $request->importMode(), $currentUserId
 		);
 	}
 
 	/**
 	 * @return void
 	 */
-	public function serverCancel(): void
+	public function serverCancel(CancelImportServerRequest $request): void
 	{
 		Session::put('cancel', true);
 	}

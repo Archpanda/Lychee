@@ -2,14 +2,13 @@
 
 namespace App\Models\Extensions;
 
-use App\Contracts\BidirectionalRelation;
+use App\Contracts\Relations\BidirectionalRelation;
 use App\Relations\HasManyBidirectionally;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Str;
-use function Safe\sprintf;
 
 trait HasBidirectionalRelationships
 {

@@ -3,18 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Photo\Archive;
-use App\Actions\Photo\Create;
 use App\Actions\Photo\Delete;
 use App\Actions\Photo\Duplicate;
-use App\Actions\Photo\Strategies\ImportMode;
 use App\Actions\User\Notify;
-use App\Contracts\InternalLycheeException;
-use App\Contracts\LycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Contracts\Exceptions\LycheeException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Exceptions\UnauthorizedException;
+use App\Factories\AlbumFactory;
 use App\Http\Requests\Photo\AddPhotoRequest;
 use App\Http\Requests\Photo\ArchivePhotosRequest;
+use App\Http\Requests\Photo\ClearSymLinkRequest;
 use App\Http\Requests\Photo\DeletePhotosRequest;
 use App\Http\Requests\Photo\DuplicatePhotosRequest;
 use App\Http\Requests\Photo\GetPhotoRequest;
@@ -25,31 +24,31 @@ use App\Http\Requests\Photo\SetPhotoPublicRequest;
 use App\Http\Requests\Photo\SetPhotosStarredRequest;
 use App\Http\Requests\Photo\SetPhotosTagsRequest;
 use App\Http\Requests\Photo\SetPhotosTitleRequest;
-use App\Image\TemporaryLocalFile;
-use App\Image\UploadedFile;
+use App\Http\Requests\Photo\SetPhotoUploadDateRequest;
+use App\Http\Resources\Models\PhotoResource;
+use App\Image\Files\ProcessableJobFile;
+use App\Image\Files\UploadedFile;
+use App\Jobs\ProcessImageJob;
 use App\ModelFunctions\SymLinkFunctions;
 use App\Models\Configs;
 use App\Models\Photo;
-use App\Policies\UserPolicy;
 use App\SmartAlbums\StarredAlbum;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class PhotoController extends Controller
 {
-	private SymLinkFunctions $symLinkFunctions;
-
 	/**
 	 * @param SymLinkFunctions $symLinkFunctions
+	 * @param AlbumFactory     $albumFactory
 	 */
 	public function __construct(
-		SymLinkFunctions $symLinkFunctions
+		private SymLinkFunctions $symLinkFunctions,
+		private AlbumFactory $albumFactory
 	) {
-		$this->symLinkFunctions = $symLinkFunctions;
 	}
 
 	/**
@@ -57,18 +56,18 @@ class PhotoController extends Controller
 	 *
 	 * @param GetPhotoRequest $request
 	 *
-	 * @return Photo
+	 * @return PhotoResource
 	 */
-	public function get(GetPhotoRequest $request): Photo
+	public function get(GetPhotoRequest $request): PhotoResource
 	{
-		return $request->photo();
+		return PhotoResource::make($request->photo());
 	}
 
 	/**
 	 * Returns a random public photo (starred)
 	 * This is used in the Frame Controller.
 	 *
-	 * @return Photo
+	 * @return PhotoResource
 	 *
 	 * @throws ModelNotFoundException
 	 * @throws InternalLycheeException
@@ -76,14 +75,14 @@ class PhotoController extends Controller
 	 *
 	 * @noinspection PhpIncompatibleReturnTypeInspection
 	 */
-	public function getRandom(): Photo
+	public function getRandom(): PhotoResource
 	{
 		// PHPStan does not understand that `firstOrFail` returns `Photo`, but assumes that it returns `Model`
 		// @phpstan-ignore-next-line
-		return StarredAlbum::getInstance()
+		return PhotoResource::make(StarredAlbum::getInstance()
 			->photos()
 			->inRandomOrder()
-			->firstOrFail();
+			->firstOrFail());
 	}
 
 	/**
@@ -91,12 +90,12 @@ class PhotoController extends Controller
 	 *
 	 * @param AddPhotoRequest $request
 	 *
-	 * @return Photo
+	 * @return PhotoResource|JsonResponse
 	 *
 	 * @throws LycheeException
 	 * @throws ModelNotFoundException
 	 */
-	public function add(AddPhotoRequest $request): Photo
+	public function add(AddPhotoRequest $request): PhotoResource|JsonResponse
 	{
 		// This code is a nasty work-around which should not exist.
 		// PHP stores a temporary copy of the uploaded file without a file
@@ -116,23 +115,28 @@ class PhotoController extends Controller
 		// Hence, we must make a deep copy.
 		// TODO: Remove this code again, if all other TODOs regarding MIME and file handling are properly refactored and we have stopped using absolute file paths as the least common denominator to pass around files.
 		$uploadedFile = new UploadedFile($request->uploadedFile());
-		$copiedFile = new TemporaryLocalFile(
+		$processableFile = new ProcessableJobFile(
 			$uploadedFile->getOriginalExtension(),
 			$uploadedFile->getOriginalBasename()
 		);
-		$copiedFile->write($uploadedFile->read());
+		$processableFile->write($uploadedFile->read());
+
 		$uploadedFile->close();
 		$uploadedFile->delete();
+		$processableFile->close();
 		// End of work-around
 
-		// As the file has been uploaded, the (temporary) source file shall be
-		// deleted
-		$create = new Create(new ImportMode(
-			true,
-			Configs::getValueAsBool('skip_duplicates')
-		));
+		if (Configs::getValueAsBool('use_job_queues')) {
+			ProcessImageJob::dispatch($processableFile, $request->album());
 
-		return $create->add($copiedFile, $request->album());
+			return new JsonResponse(null, 201);
+		}
+
+		$job = new ProcessImageJob($processableFile, $request->album());
+		$photo = $job->handle($this->albumFactory);
+		$isNew = $photo->created_at->toIso8601String() === $photo->updated_at->toIso8601String();
+
+		return PhotoResource::make($photo)->setStatus($isNew ? 201 : 200);
 	}
 
 	/**
@@ -219,9 +223,14 @@ class PhotoController extends Controller
 	public function setTags(SetPhotosTagsRequest $request): void
 	{
 		$tags = $request->tags();
+
 		/** @var Photo $photo */
 		foreach ($request->photos() as $photo) {
-			$photo->tags = $tags;
+			if ($request->shallOverride) {
+				$photo->tags = $tags;
+			} else {
+				$photo->tags = array_unique(array_merge($photo->tags, $tags));
+			}
 			$photo->save();
 		}
 	}
@@ -270,6 +279,21 @@ class PhotoController extends Controller
 	}
 
 	/**
+	 * Sets the license of the photo.
+	 *
+	 * @param SetPhotoUploadDateRequest $request
+	 *
+	 * @return void
+	 *
+	 * @throws LycheeException
+	 */
+	public function setUploadDate(SetPhotoUploadDateRequest $request): void
+	{
+		$request->photo()->created_at = $request->requestDate();
+		$request->photo()->save();
+	}
+
+	/**
 	 * Delete one or more photos.
 	 *
 	 * @param DeletePhotosRequest $request
@@ -293,15 +317,15 @@ class PhotoController extends Controller
 	 * @param DuplicatePhotosRequest $request
 	 * @param Duplicate              $duplicate
 	 *
-	 * @return Photo|Collection the duplicated photo or collection of duplicated photos
+	 * @return JsonResponse the collection of duplicated photos
 	 *
 	 * @throws ModelDBException
 	 */
-	public function duplicate(DuplicatePhotosRequest $request, Duplicate $duplicate): Photo|Collection
+	public function duplicate(DuplicatePhotosRequest $request, Duplicate $duplicate): JsonResponse
 	{
 		$duplicates = $duplicate->do($request->photos(), $request->album());
 
-		return ($duplicates->count() === 1) ? $duplicates->first() : $duplicates;
+		return PhotoResource::collection($duplicates)->toResponse($request)->setStatusCode(201);
 	}
 
 	/**
@@ -322,16 +346,15 @@ class PhotoController extends Controller
 	/**
 	 * GET to manually clear the symlinks.
 	 *
+	 * @param ClearSymLinkRequest $request
+	 *
 	 * @return void
 	 *
 	 * @throws ModelDBException
 	 * @throws LycheeException
 	 */
-	public function clearSymLink(): void
+	public function clearSymLink(ClearSymLinkRequest $request): void
 	{
-		if (!Gate::check(UserPolicy::IS_ADMIN)) {
-			throw new UnauthorizedException('Admin privileges required');
-		}
 		$this->symLinkFunctions->clearSymLink();
 	}
 }

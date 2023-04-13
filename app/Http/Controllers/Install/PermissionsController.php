@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Install;
 
-use App\Actions\Install\DefaultConfig;
-use App\Actions\Install\PermissionsChecker;
+use App\Actions\InstallUpdate\DefaultConfig;
+use App\Actions\InstallUpdate\PermissionsChecker;
 use App\Exceptions\Internal\FrameworkException;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Contracts\View\View;
@@ -11,8 +11,8 @@ use Illuminate\Routing\Controller;
 
 final class PermissionsController extends Controller
 {
-	protected PermissionsChecker $permissions;
-	protected DefaultConfig $config;
+	private PermissionsChecker $permissions;
+	private DefaultConfig $config;
 
 	/**
 	 * @param PermissionsChecker $checker

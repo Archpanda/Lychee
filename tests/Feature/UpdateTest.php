@@ -12,51 +12,59 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\MigrationStatus;
+use App\Exceptions\InsufficientFilesystemPermissions;
 use App\Models\Configs;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Session;
-use function PHPUnit\Framework\assertEquals;
 use PHPUnit\Framework\ExpectationFailedException;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
+use Tests\Feature\Traits\CatchFailures;
 
-class UpdateTest extends TestCase
+class UpdateTest extends AbstractTestCase
 {
+	use CatchFailures;
+
 	public function testDoNotLogged(): void
 	{
 		$response = $this->get('/Update', []);
-		$response->assertForbidden();
+		$this->assertUnauthorized($response);
 
 		$response = $this->postJson('/api/Update::apply');
-		$response->assertForbidden();
+		$this->assertUnauthorized($response);
 
 		$response = $this->postJson('/api/Update::check');
-		$response->assertForbidden();
+		$this->assertUnauthorized($response);
 	}
 
 	public function testDoLogged(): void
 	{
-		$gitpull = Configs::getValue('allow_online_git_pull', '0');
+		$gitpull = Configs::getValue('allow_online_git_pull');
 
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		Configs::set('allow_online_git_pull', '0');
 		$response = $this->postJson('/api/Update::apply');
-		$response->assertStatus(412);
+		$this->assertStatus($response, 412);
 		$response->assertSee('Online updates are disabled by configuration');
 
 		Configs::set('allow_online_git_pull', '1');
+		try {
+			$response = $this->get('/Update', []);
+			$this->assertOk($response);
+		} catch (InsufficientFilesystemPermissions $e) {
+			// We are most likely on a pull request let's just skip this test.
+			Configs::set('allow_online_git_pull', $gitpull);
 
-		$response = $this->get('/Update', []);
-		$response->assertOk();
+			static::markTestSkipped('Pull Request from external repo will throw an error');
+		}
 
 		$response = $this->postJson('/api/Update::apply');
-		$response->assertOk();
+		$this->assertOk($response);
 
 		$response = $this->postJson('/api/Update::check');
-		if ($response->status() === 500) {
+		if ($response->status() === 500) { // @phpstan-ignore-line
 			// We need an OR-condition here.
 			// If we are inside the Lychee repository but on a development
 			// branch which is not the master branch, then we get the first
@@ -70,7 +78,7 @@ class UpdateTest extends TestCase
 				$response->assertSee('Could not determine the branch');
 			}
 		} else {
-			$response->assertOk();
+			$this->assertOk($response);
 		}
 
 		Configs::set('allow_online_git_pull', $gitpull);
@@ -81,14 +89,14 @@ class UpdateTest extends TestCase
 
 	/**
 	 * We check that we can apply migration.
-	 * This requires us to disable the MigrationStatus middleware otherwise
+	 * This requires us to disable the {@link \App\Http\Middleware\MigrationStatus} middleware otherwise
 	 * we will be thrown out all the time.
 	 */
-	public function testApplyMigration()
+	public function testApplyMigration(): void
 	{
 		// Prepare for test: we need to make sure there is an admin user registered.
 		/** @var User $adminUser */
-		$adminUser = User::findOrFail(0);
+		$adminUser = User::findOrFail(1);
 		$login = $adminUser->username;
 		$pw = $adminUser->password;
 		$adminUser->username = Hash::make('test_login');
@@ -102,14 +110,14 @@ class UpdateTest extends TestCase
 		Auth::logout();
 		Session::flush();
 		$response = $this->postJson('/migrate');
-		$response->assertForbidden();
+		$this->assertForbidden($response);
 
 		$response = $this->postJson('/migrate', ['username' => 'test_login', 'password' => 'test_password']);
-		$response->assertOk();
+		$this->assertOk($response);
 
 		// check that Legacy did change the username
-		$adminUser = User::findOrFail(0);
-		assertEquals('test_login', $adminUser->username);
+		$adminUser = User::findOrFail(1);
+		$this->assertEquals('test_login', $adminUser->username);
 
 		// clean up
 		Auth::logout();

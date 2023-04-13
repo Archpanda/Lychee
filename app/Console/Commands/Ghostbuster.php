@@ -3,7 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Utilities\Colorize;
-use App\Contracts\SizeVariantNamingStrategy;
+use App\Contracts\Models\AbstractSizeVariantNamingStrategy;
+use App\Enum\SizeVariantType;
 use App\Exceptions\UnexpectedException;
 use App\Models\Photo;
 use App\Models\SizeVariant;
@@ -11,7 +12,7 @@ use App\Models\SymLink;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Adapter\Local as LocalFlysystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use function Safe\readlink;
 use function Safe\scandir;
 use function Safe\unlink;
@@ -72,9 +73,9 @@ class Ghostbuster extends Command
 			$removeDeadSymLinks = filter_var($this->option('removeDeadSymLinks'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
 			$removeZombiePhotos = filter_var($this->option('removeZombiePhotos'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
 			$dryrun = filter_var($this->option('dryrun'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== false;
-			$uploadDisk = SizeVariantNamingStrategy::getImageDisk();
+			$uploadDisk = AbstractSizeVariantNamingStrategy::getImageDisk();
 			$symlinkDisk = Storage::disk(SymLink::DISK_NAME);
-			$isLocalDisk = $uploadDisk->getDriver()->getAdapter() instanceof LocalFlysystem;
+			$isLocalDisk = $uploadDisk->getAdapter() instanceof LocalFilesystemAdapter;
 
 			$this->line('');
 
@@ -168,7 +169,7 @@ class Ghostbuster extends Command
 					if ($dryrun) {
 						$this->line(str_pad($sizeVariant->short_path, 50) . $this->col->red(' does not exist and photo would be removed') . '.');
 					} else {
-						if ($sizeVariant->type === SizeVariant::ORIGINAL) {
+						if ($sizeVariant->type === SizeVariantType::ORIGINAL) {
 							$sizeVariant->photo->delete();
 						} else {
 							$sizeVariant->delete();
@@ -187,7 +188,7 @@ class Ghostbuster extends Command
 				$this->line($totalFiles . ' files would be deleted.');
 				$this->line($totalDbEntries . ' photos would be deleted or sanitized');
 				$this->line('');
-				$this->line("Rerun the command '" . $this->col->yellow('php artisan lychee:ghostbuster ' . ($removeDeadSymLinks ? '1' : '0') . ' ' . ($removeZombiePhotos ? '1' : '0') . ' 0') . "' to effectively remove the files.");
+				$this->line("Rerun the command '" . $this->col->yellow('php artisan lychee:ghostbuster --removeDeadSymLinks ' . ($removeDeadSymLinks ? '1' : '0') . ' --removeZombiePhotos ' . ($removeZombiePhotos ? '1' : '0') . '--dryrun 0') . "' to effectively remove the files.");
 			}
 			if ($total > 0 && !$dryrun) {
 				$this->line($totalDeadSymLinks . ' dead symbolic links have been deleted.');

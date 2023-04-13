@@ -2,11 +2,11 @@
 
 namespace App\Actions\Albums;
 
-use App\Contracts\InternalLycheeException;
-use App\DTO\PositionData as PositionDataDTO;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Enum\SizeVariantType;
+use App\Http\Resources\Collections\PositionDataResource;
 use App\Models\Configs;
 use App\Models\Photo;
-use App\Models\SizeVariant;
 use App\Policies\PhotoQueryPolicy;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -25,11 +25,11 @@ class PositionData
 	/**
 	 * Given a list of albums, generate an array to be returned.
 	 *
-	 * @return PositionDataDTO
+	 * @return PositionDataResource
 	 *
 	 * @throws InternalLycheeException
 	 */
-	public function do(): PositionDataDTO
+	public function do(): PositionDataResource
 	{
 		$photoQuery = $this->photoQueryPolicy->applySearchabilityFilter(
 			Photo::query()
@@ -48,7 +48,7 @@ class PositionData
 						// this really helps, if you want to show thousands
 						// of photos on a map, as there are up to 7 size
 						// variants per photo
-						$r->whereBetween('type', [SizeVariant::SMALL2X, SizeVariant::THUMB]);
+						$r->whereBetween('type', [SizeVariantType::SMALL2X, SizeVariantType::THUMB]);
 					},
 					'size_variants.sym_links',
 				])
@@ -56,6 +56,6 @@ class PositionData
 				->whereNotNull('longitude')
 		);
 
-		return new PositionDataDTO(null, null, $photoQuery->get(), null);
+		return new PositionDataResource(null, null, $photoQuery->get(), null);
 	}
 }

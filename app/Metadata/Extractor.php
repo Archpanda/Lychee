@@ -6,17 +6,17 @@ use App\Exceptions\ExternalComponentFailedException;
 use App\Exceptions\ExternalComponentMissingException;
 use App\Exceptions\Handler;
 use App\Exceptions\MediaFileOperationException;
-use App\Image\NativeLocalFile;
+use App\Image\Files\NativeLocalFile;
 use App\Models\Configs;
 use App\Models\Logs;
 use Carbon\Exceptions\InvalidFormatException;
 use Carbon\Exceptions\InvalidTimeZoneException;
 use Illuminate\Support\Carbon;
-use PHPExif\Adapter\NoAdapterException;
+use PHPExif\Enum\ReaderType;
 use PHPExif\Exif;
+use PHPExif\Reader\PhpExifReaderException;
 use PHPExif\Reader\Reader;
 use Safe\Exceptions\StringsException;
-use function Safe\substr;
 
 /**
  * Collects normalized EXIF info about an image/video.
@@ -64,7 +64,6 @@ class Extractor
 	 *
 	 * @throws ExternalComponentMissingException
 	 * @throws MediaFileOperationException
-	 * @throws ExternalComponentFailedException
 	 */
 	public static function createFromFile(NativeLocalFile $file): self
 	{
@@ -78,10 +77,10 @@ class Extractor
 			//  3. Imagick (not for videos, i.e. for supported photos and accepted raw files only)
 			//  4. Native PHP exif reader (last resort)
 			$reader = match (true) {
-				(Configs::hasFFmpeg() && $isSupportedVideo) => Reader::factory(Reader::TYPE_FFPROBE),
-				Configs::hasExiftool() => Reader::factory(Reader::TYPE_EXIFTOOL),
-				(Configs::hasImagick() && !$isSupportedVideo) => Reader::factory(Reader::TYPE_IMAGICK),
-				default => Reader::factory(Reader::TYPE_NATIVE),
+				(Configs::hasFFmpeg() && $isSupportedVideo) => Reader::factory(ReaderType::FFPROBE),
+				Configs::hasExiftool() => Reader::factory(ReaderType::EXIFTOOL),
+				(Configs::hasImagick() && !$isSupportedVideo) => Reader::factory(ReaderType::IMAGICK),
+				default => Reader::factory(ReaderType::NATIVE),
 			};
 
 			// this can throw an exception in the case of Exiftool adapter!
@@ -96,33 +95,20 @@ class Extractor
 			// as `application/octet-stream`, but this work-around only
 			// succeeds if the file has a recognized extension.
 			$exif = $reader->read($file->getRealPath());
-		} catch (\InvalidArgumentException|NoAdapterException $e) {
-			throw new ExternalComponentMissingException('The configured EXIF adapter is not available', $e);
-		} catch (\RuntimeException $e) {
+		} catch (PhpExifReaderException $e) {
 			// thrown by $reader->read if EXIF could not be extracted,
 			// don't give up yet, only log the event
 			Handler::reportSafely($e);
-			$exif = false;
-		}
-
-		if ($exif === false) {
 			try {
 				Logs::notice(__METHOD__, __LINE__, 'Falling back to native adapter.');
 				// Use Php native tools
-				$reader = Reader::factory(Reader::TYPE_NATIVE);
+				$reader = Reader::factory(ReaderType::NATIVE);
 				$exif = $reader->read($file->getRealPath());
-			} catch (\InvalidArgumentException|NoAdapterException $e) {
-				throw new ExternalComponentMissingException('The configured EXIF adapter is not available', $e);
-			} catch (\RuntimeException $e) {
+			} catch (PhpExifReaderException $e) {
 				// thrown by $reader->read if EXIF could not be extracted,
 				// even with the native adapter, now we give up
 				throw new MediaFileOperationException('Could not even extract basic EXIF data with the native adapter', $e);
 			}
-		}
-
-		// TODO: By changing the logic of $reader to always return an Exif object or throw an exception, this would make this code safer.
-		if (!$exif instanceof Exif) {
-			throw new MediaFileOperationException('Could not even extract basic EXIF data with the native adapter');
 		}
 
 		// Attempt to get sidecar metadata if it exists, make sure to check 'real' path in case of symlinks
@@ -133,11 +119,8 @@ class Extractor
 		if (Configs::hasExiftool() && $sidecarFile->exists()) {
 			try {
 				// Don't use the same reader as the file in case it's a video
-				$sidecarReader = Reader::factory(Reader::TYPE_EXIFTOOL);
+				$sidecarReader = Reader::factory(ReaderType::EXIFTOOL);
 				$sideCarExifData = $sidecarReader->read($sidecarFile->getRealPath());
-				if (!$sideCarExifData instanceof Exif) {
-					throw new MediaFileOperationException('Could not even extract EXIF data with the exiftool adapter');
-				}
 				$sidecarData = $sideCarExifData->getData();
 
 				// We don't want to overwrite the media's type with the mimetype of the sidecar file
@@ -345,14 +328,14 @@ class Extractor
 					// to original timezone of the location where the video
 					// has been recorded.
 					// So we don't need to do anything.
-						//
+					//
 					// The only known example are the mov files from Apple
 					// devices; the time zone will be formatted as "+01:00"
 					// so neither of the two conditions above should trigger.
 					} elseif ($taken_at->getTimezone()->getName() === 'Z') {
 						// This is a video format where we expect the takestamp
 						// to be provided in local time but the timezone is
-						// (erroneuously) set to Zulu (UTC).  This will trigger,
+						// (erroneously) set to Zulu (UTC).  This will trigger,
 						// e.g., for mov files with the FFprobe extractor.
 						// We recreate the recording time as a timestamp in the
 						// application's default timezone.

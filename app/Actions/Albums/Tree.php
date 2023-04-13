@@ -2,11 +2,13 @@
 
 namespace App\Actions\Albums;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\DTO\AlbumSortingCriterion;
-use App\DTO\AlbumTree;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
 use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
+use App\Http\Resources\Collections\AlbumForestResource;
 use App\Models\Album;
 use App\Models\Extensions\SortingDecorator;
 use App\Policies\AlbumQueryPolicy;
@@ -29,11 +31,11 @@ class Tree
 	}
 
 	/**
-	 * @return AlbumTree
+	 * @return AlbumForestResource
 	 *
 	 * @throws InternalLycheeException
 	 */
-	public function get(): AlbumTree
+	public function get(): AlbumForestResource
 	{
 		/*
 		 * Note, strictly speaking
@@ -55,7 +57,7 @@ class Tree
 		);
 		if (Auth::check()) {
 			// For authenticated users we group albums by ownership.
-			$query->orderBy('owner_id');
+			$query->orderBy(ColumnSortingType::OWNER_ID, OrderSortingType::ASC);
 		}
 		$query->orderBy($this->sorting->column, $this->sorting->order);
 
@@ -72,13 +74,15 @@ class Tree
 			// (sub)-tree and then `toTree` will return garbage as it does
 			// not find connected paths within `$albums` or `$sharedAlbums`,
 			// resp.
-			list($albums, $sharedAlbums) = $albums->partition(fn ($album) => $album->owner_id === $userID);
+			/** @var NsCollection<Album> $albums */
+			/** @var ?NsCollection<Album> $sharedAlbums */
+			list($albums, $sharedAlbums) = $albums->partition(fn (Album $album) => $album->owner_id === $userID);
 		}
 
 		// We must explicitly pass `null` as the ID of the root album
 		// as there are several top-level albums below root.
 		// Otherwise, `toTree` uses the ID of the album with the lowest
 		// `_lft` value as the (wrong) root album.
-		return new AlbumTree($albums->toTree(null), $sharedAlbums?->toTree(null));
+		return new AlbumForestResource($albums->toTree(null), $sharedAlbums?->toTree(null));
 	}
 }

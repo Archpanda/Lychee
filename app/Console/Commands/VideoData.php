@@ -2,19 +2,18 @@
 
 namespace App\Console\Commands;
 
-use App\Contracts\ExternalLycheeException;
-use App\Contracts\LycheeException;
-use App\Contracts\SizeVariantFactory;
+use App\Contracts\Exceptions\ExternalLycheeException;
+use App\Contracts\Exceptions\LycheeException;
+use App\Contracts\Models\SizeVariantFactory;
+use App\Enum\SizeVariantType;
 use App\Exceptions\UnexpectedException;
-use App\Image\MediaFile;
+use App\Image\Files\BaseMediaFile;
 use App\Metadata\Extractor;
 use App\Models\Photo;
-use App\Models\SizeVariant;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Safe\Exceptions\InfoException;
 use function Safe\set_time_limit;
-use function Safe\sprintf;
 use Symfony\Component\Console\Exception\ExceptionInterface as SymfonyConsoleException;
 
 class VideoData extends Command
@@ -61,9 +60,9 @@ class VideoData extends Command
 
 			$photos = Photo::query()
 				->with(['size_variants'])
-				->whereIn('type', MediaFile::SUPPORTED_VIDEO_MIME_TYPES)
+				->whereIn('type', BaseMediaFile::SUPPORTED_VIDEO_MIME_TYPES)
 				->whereDoesntHave('size_variants', function (Builder $query) {
-					$query->where('type', '=', SizeVariant::THUMB);
+					$query->where('type', '=', SizeVariantType::THUMB);
 				})
 				->take($count)
 				->get();

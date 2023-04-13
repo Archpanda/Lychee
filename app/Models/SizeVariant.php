@@ -4,25 +4,24 @@ namespace App\Models;
 
 use App\Actions\SizeVariant\Delete;
 use App\Casts\MustNotSetCast;
-use App\Contracts\SizeVariantNamingStrategy;
+use App\Contracts\Models\AbstractSizeVariantNamingStrategy;
+use App\Enum\SizeVariantType;
 use App\Exceptions\ConfigurationException;
-use App\Exceptions\Internal\InvalidSizeVariantException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Image\FlysystemFile;
+use App\Image\Files\FlysystemFile;
 use App\Models\Extensions\HasAttributesPatch;
 use App\Models\Extensions\HasBidirectionalRelationships;
 use App\Models\Extensions\ThrowsConsistentExceptions;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UseFixedQueryBuilder;
 use App\Models\Extensions\UTCBasedTimes;
-use App\Policies\UserPolicy;
 use App\Relations\HasManyBidirectionally;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Adapter\Local;
+use Illuminate\Support\Facades\Auth;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 
 // TODO: Uncomment the following line, if Lychee really starts to support AWS s3.
 // The previous code already contained some first steps for S3, but relied
@@ -45,7 +44,7 @@ use League\Flysystem\Adapter\Local;
  * @property int                 $id
  * @property string              $photo_id
  * @property Photo               $photo
- * @property int                 $type
+ * @property SizeVariantType     $type
  * @property string              $short_path
  * @property string              $url
  * @property string              $full_path
@@ -53,8 +52,6 @@ use League\Flysystem\Adapter\Local;
  * @property int                 $height
  * @property int                 $filesize
  * @property Collection<SymLink> $sym_links
- *
- * @phpstan-property int<0,6>   $type
  */
 class SizeVariant extends Model
 {
@@ -64,14 +61,7 @@ class SizeVariant extends Model
 	use ThrowsConsistentExceptions;
 	/** @phpstan-use UseFixedQueryBuilder<SizeVariant> */
 	use UseFixedQueryBuilder;
-
-	public const ORIGINAL = 0;
-	public const MEDIUM2X = 1;
-	public const MEDIUM = 2;
-	public const SMALL2X = 3;
-	public const SMALL = 4;
-	public const THUMB2X = 5;
-	public const THUMB = 6;
+	use ToArrayThrowsNotImplemented;
 
 	/**
 	 * This model has no own timestamps as it is inseparably bound to its
@@ -82,37 +72,16 @@ class SizeVariant extends Model
 	public $timestamps = false;
 
 	/**
-	 * @var string[]
+	 * @var array<string,string>
 	 */
 	protected $casts = [
 		'id' => 'integer',
-		'type' => 'integer',
+		'type' => SizeVariantType::class,
 		'full_path' => MustNotSetCast::class . ':short_path',
 		'url' => MustNotSetCast::class . ':short_path',
 		'width' => 'integer',
 		'height' => 'integer',
 		'filesize' => 'integer',
-	];
-
-	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		'id', // irrelevant, because a size variant is always serialized as an embedded object of its photo
-		'photo', // see above and otherwise infinite loops will occur
-		'photo_id', // see above
-		'short_path',  // serialize url instead
-		'sym_links', // don't serialize relation of symlinks
-	];
-
-	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
-	 */
-	protected $appends = [
-		'url',
 	];
 
 	/**
@@ -154,10 +123,10 @@ class SizeVariant extends Model
 	 */
 	public function getUrlAttribute(): string
 	{
-		$imageDisk = SizeVariantNamingStrategy::getImageDisk();
+		$imageDisk = AbstractSizeVariantNamingStrategy::getImageDisk();
 
 		if (
-			Gate::check(UserPolicy::IS_ADMIN) && !Configs::getValueAsBool('SL_for_admin') ||
+			(Auth::user()?->may_administrate === true && !Configs::getValueAsBool('SL_for_admin')) ||
 			!Configs::getValueAsBool('SL_enable')
 		) {
 			return $imageDisk->url($this->short_path);
@@ -168,14 +137,14 @@ class SizeVariant extends Model
 		$maxLifetime = Configs::getValueAsInt('SL_life_time_days') * 24 * 60 * 60;
 		$gracePeriod = $maxLifetime / 3;
 
-		$storageAdapter = $imageDisk->getDriver()->getAdapter();
+		$storageAdapter = $imageDisk->getAdapter();
 
 		// TODO: Uncomment these line when Laravel really starts to support s3
 		/*if ($storageAdapter instanceof AwsS3Adapter) {
 			return $imageDisk->temporaryUrl($this->short_path, now()->addSeconds($maxLifetime));
 		}*/
 
-		if ($storageAdapter instanceof Local) {
+		if ($storageAdapter instanceof LocalFilesystemAdapter) {
 			/** @var ?SymLink $symLink */
 			$symLink = $this->sym_links()->latest()->first();
 			if ($symLink === null || $symLink->created_at->isBefore(now()->subSeconds($gracePeriod))) {
@@ -203,42 +172,12 @@ class SizeVariant extends Model
 	 */
 	public function getFullPathAttribute(): string
 	{
-		return SizeVariantNamingStrategy::getImageDisk()->path($this->short_path);
+		return AbstractSizeVariantNamingStrategy::getImageDisk()->path($this->short_path);
 	}
 
 	public function getFile(): FlysystemFile
 	{
-		return new FlysystemFile(SizeVariantNamingStrategy::getImageDisk(), $this->short_path);
-	}
-
-	/**
-	 * Mutator of the attribute {@link SizeVariant::$type}.
-	 *
-	 * @param int $sizeVariantType the type of size variant; allowed values are
-	 *                             {@link SizeVariant::ORIGINAL},
-	 *                             {@link SizeVariant::MEDIUM2X},
-	 *                             {@link SizeVariant::MEDIUM},
-	 *                             {@link SizeVariant::SMALL2X},
-	 *                             {@link SizeVariant::SMALL},
-	 *                             {@link SizeVariant::THUMB2X}, and
-	 *                             {@link SizeVariant::THUMB}
-	 *
-	 * @throws InvalidSizeVariantException thrown if `$sizeVariantType` is
-	 *                                     out-of-bounds
-	 *
-	 * @phpstan-param int<0,6> $sizeVariantType
-	 */
-	public function setTypeAttribute(int $sizeVariantType): void
-	{
-		// This method is also invoked if the model is hydrated from the DB.
-		// Hence, we cannot ensure by static code analyzing that the
-		// restriction `int<0,6>` always holds.
-		// We must check at runtime, too.
-		// @phpstan-ignore-next-line
-		if (self::ORIGINAL > $sizeVariantType || $sizeVariantType > self::THUMB) {
-			throw new InvalidSizeVariantException('passed size variant ' . $sizeVariantType . ' out-of-range');
-		}
-		$this->attributes['type'] = $sizeVariantType;
+		return new FlysystemFile(AbstractSizeVariantNamingStrategy::getImageDisk(), $this->short_path);
 	}
 
 	/**

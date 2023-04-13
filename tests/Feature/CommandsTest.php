@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
+use Tests\AbstractTestCase;
 
-class CommandsTest extends TestCase
+class CommandsTest extends AbstractTestCase
 {
 	/**
 	 * Tests some console commands on a basic level.
@@ -29,10 +29,6 @@ class CommandsTest extends TestCase
 		$this->artisan('lychee:exif_lens')
 			->expectsOutput('No pictures requires EXIF updates.')
 			->assertExitCode(-1);
-
-		$this->artisan('lychee:reset_admin')
-			->expectsOutput('Admin username and password reset.')
-			->assertExitCode(0);
 
 		$this->artisan('lychee:logs')
 			->assertExitCode(0);

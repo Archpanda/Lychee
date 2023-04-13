@@ -15,9 +15,9 @@ namespace Tests\Feature;
 use App\Models\Configs;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
-use Tests\TestCase;
+use Tests\AbstractTestCase;
 
-class DiagnosticsTest extends TestCase
+class DiagnosticsTest extends AbstractTestCase
 {
 	/**
 	 * Test diagnostics.
@@ -27,20 +27,20 @@ class DiagnosticsTest extends TestCase
 	public function testDiagnostics(): void
 	{
 		$response = $this->get('/Diagnostics');
-		$response->assertOk(); // code 200 something
+		$this->assertOk($response); // code 200 something
 
-		Auth::loginUsingId(0);
+		Auth::loginUsingId(1);
 
 		$response = $this->get('/Diagnostics');
-		$response->assertOk(); // code 200 something
+		$this->assertOk($response); // code 200 something
 
 		Configs::query()->where('key', '=', 'lossless_optimization')->update(['value' => null]);
 
 		$response = $this->postJson('/api/Diagnostics::get');
-		$response->assertOk(); // code 200 something too
+		$this->assertOk($response); // code 200 something too
 
 		$response = $this->postJson('/api/Diagnostics::getSize');
-		$response->assertOk(); // code 200 something too
+		$this->assertOk($response); // code 200 something too
 
 		Configs::query()->where('key', '=', 'lossless_optimization')->update(['value' => '1']);
 

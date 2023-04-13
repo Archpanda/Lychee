@@ -2,18 +2,17 @@
 
 namespace App\Relations;
 
-use App\Contracts\InternalLycheeException;
-use App\DTO\SortingCriterion;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\NotImplementedException;
 use App\Models\Album;
 use App\Models\Extensions\SortingDecorator;
-use App\Models\Photo;
 use App\Policies\AlbumPolicy;
 use App\Policies\AlbumQueryPolicy;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Gate;
 
-class HasManyPhotosRecursively extends HasManyPhotos
+class HasManyPhotosRecursively extends BaseHasManyPhotos
 {
 	protected AlbumQueryPolicy $albumQueryPolicy;
 
@@ -117,9 +116,9 @@ class HasManyPhotosRecursively extends HasManyPhotos
 		} else {
 			$sorting = $album->getEffectiveSorting();
 			$photos = $photos->sortBy(
-				$sorting->column,
+				$sorting->column->value,
 				in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
-				$sorting->order === SortingCriterion::DESC
+				$sorting->order === OrderSortingType::DESC
 			)->values();
 			$album->setRelation($relation, $photos);
 		}
